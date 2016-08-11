@@ -1,0 +1,39 @@
+diff --git a/build_overrides/v8.gni b/build_overrides/v8.gni
+index 5920636..b0427be 100644
+--- a/build_overrides/v8.gni
++++ b/build_overrides/v8.gni
+@@ -9,7 +9,7 @@ if (is_android) {
+ # TODO(sky): nuke this. Temporary while sorting out http://crbug.com/465456.
+ enable_correct_v8_arch = false
+ 
+-v8_use_external_startup_data = !is_ios
++v8_use_external_startup_data = false
+ 
+ # Turns on compiler optimizations in V8 in Debug build.
+ v8_optimized_debug = true
+diff --git a/headless/BUILD.gn b/headless/BUILD.gn
+index e1a853e..6a87431 100644
+--- a/headless/BUILD.gn
++++ b/headless/BUILD.gn
+@@ -264,6 +264,8 @@ static_library("headless_lib") {
+     "//ui/ozone",
+     "//url",
+   ]
++
++  complete_static_lib = true
+ }
+ 
+ group("headless_tests") {
+diff --git a/v8/BUILD.gn b/v8/BUILD.gn
+index eec472f..ce6b25e 100644
+--- a/v8/BUILD.gn
++++ b/v8/BUILD.gn
+@@ -28,7 +28,7 @@ declare_args() {
+ 
+   # Use external files for startup data blobs:
+   # the JS builtins sources and the start snapshot.
+-  v8_use_external_startup_data = true
++  v8_use_external_startup_data = false
+ 
+   # Sets -DVERIFY_HEAP.
+   v8_enable_verify_heap = false
