@@ -60,7 +60,7 @@ install_headless_chromium() {
 
         cd src
         git fetch --tags
-        version=52.0.2743.116
+        version=54.0.2828.1
         git checkout -b ${version} ${version} &&
         gclient sync --with_branch_heads
         rc=$?
@@ -90,7 +90,9 @@ install_headless_chromium() {
     args="import(\"//build/args/headless.gn\")\n
 is_debug = false\n
 remove_webcore_debug_symbols = true\n
-symbol_level = 0"
+symbol_level = 0
+use_sysroot = false
+is_clang = false"
     if [ -n "$debug" ]; then
         args="${args}\nis_component_build = true"
     fi
@@ -143,6 +145,8 @@ symbol_level = 0"
         echo -e "${RED}Failed to install headless/public/domains${NC}"
         return 1
     fi
+
+    cd ../..
 }
 
 install_tools &&
