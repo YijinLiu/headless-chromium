@@ -28,6 +28,15 @@ diff --git a/v8/BUILD.gn b/v8/BUILD.gn
 index eec472f..ce6b25e 100644
 --- a/v8/BUILD.gn
 +++ b/v8/BUILD.gn
+@@ -20,7 +20,7 @@ import("snapshot_toolchain.gni")
+ declare_args() {
+   # Use ICU data file (icudtl.dat) if true or library (shared on windows,
+   # static otherwise).
+-  icu_use_data_file_flag = true
++  icu_use_data_file_flag = false
+ 
+   # Enable the snapshot feature, for fast context creation.
+   # http://v8project.blogspot.com/2015/09/custom-startup-snapshots.html
 @@ -28,7 +28,7 @@ declare_args() {
  
    # Use external files for startup data blobs:

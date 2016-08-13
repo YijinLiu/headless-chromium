@@ -38,7 +38,6 @@ install_headless_chromium() {
         mkdir -p chromium
     fi
     cd chromium
-    version=52.0.2743.116
 
     if [ ! -d "depot_tools" ]; then
         git clone --depth=1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
@@ -61,6 +60,7 @@ install_headless_chromium() {
 
         cd src
         git fetch --tags
+        version=52.0.2743.116
         git checkout -b ${version} ${version} &&
         gclient sync --with_branch_heads
         rc=$?
@@ -95,7 +95,7 @@ symbol_level = 0"
         args="${args}\nis_component_build = true"
     fi
 
-    gclient runhooks -force && mkdir -p out/Default &&
+    gclient runhooks --force && mkdir -p out/Default &&
     echo -e $args > out/Default/args.gn &&
     gn gen out/Default && ninja -C out/Default headless_shell
     rc=$?
