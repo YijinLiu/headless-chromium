@@ -60,7 +60,7 @@ install_headless_chromium() {
 
         cd src
         git fetch --tags
-        version=54.0.2828.1
+        version=54.0.2831.1
         git checkout -b ${version} ${version} &&
         gclient sync --with_branch_heads
         rc=$?
@@ -92,7 +92,9 @@ is_debug = false\n
 remove_webcore_debug_symbols = true\n
 symbol_level = 0
 use_sysroot = false
-is_clang = false"
+is_clang = false
+v8_use_external_startup_data = false
+icu_use_data_file = false"
     if [ -n "$debug" ]; then
         args="${args}\nis_component_build = true"
     fi
@@ -124,10 +126,12 @@ is_clang = false"
     fi
 
     dest=/usr/local/include/headless_chromium
-    folders="base base/debug base/memory base/numerics base/strings base/synchronization \
-             base/threading base/time build headless/public headless/public/internal \
-             headless/public/util net/base net/url_request ui/gfx ui/gfx/geometry url \
-             url/third_party/mozilla"
+    folders="base base/containers base/debug base/files base/memory base/numerics base/strings \
+             base/synchronization base/task_scheduler base/threading base/time build \
+             headless/public headless/public/internal headless/public/util \
+             mojo/public/c/system mojo/public/cpp/bindings mojo/public/cpp/bindings/lib \
+             mojo/public/cpp/system \
+             net/base net/url_request ui/gfx ui/gfx/geometry url url/third_party/mozilla"
     for folder in ${folders}
     do
         sudo mkdir -p ${dest}/${folder} &&

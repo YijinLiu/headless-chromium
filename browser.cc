@@ -5,7 +5,7 @@
 #include <ui/gfx/geometry/size.h>
 #include <url/gurl.h>
 
-Browser::Browser() : browser_(nullptr), web_contents_(nullptr),
+Browser::Browser() : browser_(nullptr), browser_context_(nullptr), web_contents_(nullptr),
                      devtools_client_(headless::HeadlessDevToolsClient::Create()) {}
 
 Browser::~Browser() {}
@@ -19,9 +19,11 @@ int Browser::Run(std::function<void()> readyCb) {
 bool Browser::OpenUrl(const std::string& url, int width, int height, std::function<void()> readyCb) {
     GURL gurl(url);
     if (web_contents_ != nullptr) web_contents_->Close();
-    web_contents_ = browser_->CreateWebContents(gurl, gfx::Size(width, height));
+    browser_context_ = browser_->CreateBrowserContextBuilder().Build();
+    headless::HeadlessWebContents::Builder builder(browser_context_->CreateWebContentsBuilder());
+	builder.SetInitialURL(gurl);
+    web_contents_ = builder.Build();
     if (web_contents_ == nullptr) return false;
-    pageLoadedCb_ = readyCb;
     web_contents_->AddObserver(this);
     return true;
 }
@@ -30,7 +32,7 @@ namespace {
 
 void EvaluateCallback(std::function<void(bool, const std::string&)> cb,
                       std::unique_ptr<headless::runtime::EvaluateResult> result) {
-    if (result->HasWasThrown()) {
+    if (result->HasExceptionDetails()) {
         std::string exception;
         if (result->HasExceptionDetails()) {
             exception = result->GetExceptionDetails()->GetText();
@@ -56,6 +58,8 @@ void Browser::Shutdown() {
         web_contents_->RemoveObserver(this);
         web_contents_ = nullptr;
     }
+    browser_context_->Close();
+    browser_context_ = nullptr;
     browser_->Shutdown();
     browser_ = nullptr;
 }

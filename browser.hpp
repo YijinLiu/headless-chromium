@@ -39,6 +39,8 @@ class Browser : public headless::HeadlessWebContents::Observer, headless::page::
     // Not owned.
     headless::HeadlessBrowser* browser_;
     // Not owned.
+    headless::HeadlessBrowserContext* browser_context_;
+    // Not owned.
     headless::HeadlessWebContents* web_contents_; 
     std::unique_ptr<headless::HeadlessDevToolsClient> devtools_client_;
     std::function<void()> pageLoadedCb_;

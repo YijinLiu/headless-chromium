@@ -1,20 +1,20 @@
 diff --git a/build/config/BUILDCONFIG.gn b/build/config/BUILDCONFIG.gn
-index 92d0b6e..4bba51d 100644
+index 6390ae9..9175a2f 100644
 --- a/build/config/BUILDCONFIG.gn
 +++ b/build/config/BUILDCONFIG.gn
-@@ -475,6 +475,7 @@ if (current_os == "winrt_81" || current_os == "winrt_81_phone" ||
+@@ -494,6 +494,7 @@ if (current_os == "winrt_81" || current_os == "winrt_81_phone" ||
  if (is_posix) {
-   _native_compiler_configs += [
+   default_compiler_configs += [
      "//build/config/gcc:no_exceptions",
 +    "//build/config/gcc:no_strict_overflow",
      "//build/config/gcc:symbol_visibility_hidden",
    ]
  }
 diff --git a/build/config/gcc/BUILD.gn b/build/config/gcc/BUILD.gn
-index 62eec11..b1e1183 100644
+index 422ec0e..f44962a 100644
 --- a/build/config/gcc/BUILD.gn
 +++ b/build/config/gcc/BUILD.gn
-@@ -117,3 +117,7 @@ config("no_exceptions") {
+@@ -121,3 +121,7 @@ config("no_exceptions") {
    cflags_cc = [ "-fno-exceptions" ]
    cflags_objcc = cflags_cc
  }
@@ -22,51 +22,16 @@ index 62eec11..b1e1183 100644
 +config("no_strict_overflow") {
 +  cflags = [ "-fno-strict-overflow" ]
 +}
-diff --git a/build_overrides/v8.gni b/build_overrides/v8.gni
-index 5920636..b0427be 100644
---- a/build_overrides/v8.gni
-+++ b/build_overrides/v8.gni
-@@ -9,7 +9,7 @@ if (is_android) {
- # TODO(sky): nuke this. Temporary while sorting out http://crbug.com/465456.
- enable_correct_v8_arch = false
- 
--v8_use_external_startup_data = !is_ios
-+v8_use_external_startup_data = false
- 
- # Turns on compiler optimizations in V8 in Debug build.
- v8_optimized_debug = true
 diff --git a/headless/BUILD.gn b/headless/BUILD.gn
-index e1a853e..6a87431 100644
+index 7a509c7..68a2974 100644
 --- a/headless/BUILD.gn
 +++ b/headless/BUILD.gn
-@@ -264,6 +264,8 @@ static_library("headless_lib") {
-     "//ui/ozone",
-     "//url",
+@@ -233,6 +233,8 @@ static_library("headless_lib") {
    ]
+ 
+   configs += [ ":headless_implementation" ]
 +
 +  complete_static_lib = true
  }
  
  group("headless_tests") {
-diff --git a/v8/BUILD.gn b/v8/BUILD.gn
-index eec472f..7de5e78 100644
---- a/v8/BUILD.gn
-+++ b/v8/BUILD.gn
-@@ -20,7 +20,7 @@ import("snapshot_toolchain.gni")
- declare_args() {
-   # Use ICU data file (icudtl.dat) if true or library (shared on windows,
-   # static otherwise).
--  icu_use_data_file_flag = true
-+  icu_use_data_file_flag = false
- 
-   # Enable the snapshot feature, for fast context creation.
-   # http://v8project.blogspot.com/2015/09/custom-startup-snapshots.html
-@@ -28,7 +28,7 @@ declare_args() {
- 
-   # Use external files for startup data blobs:
-   # the JS builtins sources and the start snapshot.
--  v8_use_external_startup_data = true
-+  v8_use_external_startup_data = false
- 
-   # Sets -DVERIFY_HEAP.
-   v8_enable_verify_heap = false
