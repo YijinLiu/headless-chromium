@@ -1,8 +1,8 @@
 diff --git a/build/config/BUILDCONFIG.gn b/build/config/BUILDCONFIG.gn
-index 6390ae9..9175a2f 100644
+index 6685405..a349195 100644
 --- a/build/config/BUILDCONFIG.gn
 +++ b/build/config/BUILDCONFIG.gn
-@@ -494,6 +494,7 @@ if (current_os == "winrt_81" || current_os == "winrt_81_phone" ||
+@@ -497,6 +497,7 @@ if (current_os == "winrt_81" || current_os == "winrt_81_phone" ||
  if (is_posix) {
    default_compiler_configs += [
      "//build/config/gcc:no_exceptions",
@@ -23,10 +23,10 @@ index 422ec0e..f44962a 100644
 +  cflags = [ "-fno-strict-overflow" ]
 +}
 diff --git a/headless/BUILD.gn b/headless/BUILD.gn
-index 7a509c7..68a2974 100644
+index 8e5970b..4005ae5 100644
 --- a/headless/BUILD.gn
 +++ b/headless/BUILD.gn
-@@ -233,6 +233,8 @@ static_library("headless_lib") {
+@@ -249,6 +249,8 @@ static_library("headless_lib") {
    ]
  
    configs += [ ":headless_implementation" ]

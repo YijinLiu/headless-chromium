@@ -60,7 +60,7 @@ install_headless_chromium() {
 
         cd src
         git fetch --tags
-        version=54.0.2831.1
+        version=55.0.2883.91
         git checkout -b ${version} ${version} &&
         gclient sync --with_branch_heads
         rc=$?
@@ -68,6 +68,11 @@ install_headless_chromium() {
             echo -e "${RED}Failed to checkout branch $BRANCH.${NC}"
             return 1
         fi
+        # To update source code manually:
+        #   git rebase-update
+        #   gclient sync
+        # To list all tags:
+        #   git tag -l
 
         patch -p1 < ${BASEDIR}/chromium.patch
         rc=$?
@@ -87,14 +92,20 @@ install_headless_chromium() {
         return 1
     fi
 
+    # Set is_clang to false to compile with gcc.
+    # NOTE: There is a memory leak bug or infinite loop if compiled with gcc 5.4.0.
+    # To compile use system clang, change two lines in build/toolchain/gcc_toolchain.gni
+    #   cc = "$prefix/clang"     => cc = "clang"
+    #   cxx = "$prefix/clang++"  => cc = "clang++"
     args="import(\"//build/args/headless.gn\")\n
 is_debug = false\n
 remove_webcore_debug_symbols = true\n
-symbol_level = 0
-use_sysroot = false
-is_clang = false
-v8_use_external_startup_data = false
-icu_use_data_file = false"
+symbol_level = 0\n
+use_sysroot = false\n
+is_clang = true\n
+clang_use_chrome_plugins = false\n
+v8_use_external_startup_data = false\n
+icu_use_data_file = false\n"
     if [ -n "$debug" ]; then
         args="${args}\nis_component_build = true"
     fi
@@ -109,7 +120,7 @@ icu_use_data_file = false"
     fi
 
     sudo mkdir -p /usr/local/lib &&
-    sudo install -C out/Default/obj/headless/libheadless_lib.a /usr/local/lib/libheadless_chromium.a
+    sudo install out/Default/obj/headless/libheadless_lib.a /usr/local/lib/libheadless_chromium.a
     rc=$?
     if [ $rc != 0 ]; then
         echo -e "${RED}Failed to install libheadless_chromium.a${NC}"
@@ -117,7 +128,7 @@ icu_use_data_file = false"
     fi
 
     if [ -n "$debug" ]; then
-        sudo install -C out/Default/lib*.so /usr/local/lib/
+        sudo install out/Default/lib*.so /usr/local/lib/
         rc=$?
         if [ $rc != 0 ]; then
             echo -e "${RED}Failed to install component libs${NC}"
@@ -126,12 +137,13 @@ icu_use_data_file = false"
     fi
 
     dest=/usr/local/include/headless_chromium
-    folders="base base/containers base/debug base/files base/memory base/numerics base/strings \
-             base/synchronization base/task_scheduler base/threading base/time build \
+    folders="base base/containers base/debug base/files base/memory base/message_loop \
+             base/numerics base/profiler base/strings base/synchronization base/task_scheduler \
+             base/threading base/time build content/common content/public/common \
              headless/public headless/public/internal headless/public/util \
              mojo/public/c/system mojo/public/cpp/bindings mojo/public/cpp/bindings/lib \
-             mojo/public/cpp/system \
-             net/base net/url_request ui/gfx ui/gfx/geometry url url/third_party/mozilla"
+             mojo/public/cpp/system net/base net/url_request testing/gtest/include/gtest \
+             ui/base ui/base/touch ui/gfx ui/gfx/geometry url url/third_party/mozilla"
     for folder in ${folders}
     do
         sudo mkdir -p ${dest}/${folder} &&
