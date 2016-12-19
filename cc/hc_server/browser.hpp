@@ -18,7 +18,7 @@ class Browser : public headless::HeadlessWebContents::Observer, headless::page::
     ~Browser() override;
 
     // Only returns after Shutdown is called or errors happen.
-    int Run(std::function<void()> readyCb);
+    int Run(int argc, const char** argv, std::function<void()> readyCb);
 
     // Open URL in new tab.
     bool OpenUrl(const std::string& url, int width, int height, std::function<void()> readyCb);

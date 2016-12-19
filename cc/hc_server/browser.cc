@@ -2,6 +2,10 @@
 
 #include <base/bind.h>
 #include <base/callback.h>
+#include <base/command_line.h>
+#include <base/logging.h>
+#include <base/strings/string_number_conversions.h>
+#include <net/base/ip_address.h>
 #include <ui/gfx/geometry/size.h>
 #include <url/gurl.h>
 
@@ -10,10 +14,55 @@ Browser::Browser() : browser_(nullptr), browser_context_(nullptr), web_contents_
 
 Browser::~Browser() {}
 
-int Browser::Run(std::function<void()> readyCb) {
-    headless::HeadlessBrowser::Options::Builder opts_builder;
+namespace {
+
+const char kPort[] = "port";
+const char kAddr[] = "addr";
+const char kProxy[] = "proxy";
+
+const int kDefaultPort = 8080;
+const char kDefaultAddr[] = "127.0.0.1";
+
+}  // namespace
+
+int Browser::Run(int argc, const char** argv, std::function<void()> readyCb) {
+    headless::HeadlessBrowser::Options::Builder builder(argc, argv);
+	const base::CommandLine command_line(argc, argv);
+
+    // Parse port.
+    int port = kDefaultPort;
+    if (command_line.HasSwitch(kPort)) {
+        const std::string port_str = command_line.GetSwitchValueASCII(kPort);
+        if (!base::StringToInt(port_str, &port) ||
+            !base::IsValueInRangeForNumericType<uint16_t>(port)) {
+            LOG(FATAL) << "Invalid devtools server port: " << port_str;
+        }
+    }
+    
+    // Parse addr.
+    std::string addr = kDefaultAddr;
+    if (command_line.HasSwitch(kAddr)) {
+        addr = command_line.GetSwitchValueASCII(kAddr);
+        LOG(WARNING) << "Opening devtools port on " << addr << " ...";
+    }
+    net::IPAddress parsed_addr;
+    if (!net::ParseURLHostnameToAddress(addr, &parsed_addr)) {
+        LOG(FATAL) << "Invalid devtools server address: " << addr;
+    }
+
+    // Has proxy server?
+    builder.EnableDevToolsServer(net::IPEndPoint(parsed_addr, base::checked_cast<uint16_t>(port)));
+
+    if (command_line.HasSwitch(kProxy)) {
+        const std::string proxy_server = command_line.GetSwitchValueASCII(kProxy);
+        net::HostPortPair parsed_proxy_server = net::HostPortPair::FromString(proxy_server);
+        if (parsed_proxy_server.host().empty() || !parsed_proxy_server.port()) {
+            LOG(FATAL) << "Malformed proxy server: " << proxy_server;
+        }
+        builder.SetProxyServer(parsed_proxy_server);
+    }
     return headless::HeadlessBrowserMain(
-        opts_builder.Build(), base::Bind(&Browser::onStart, base::Unretained(this), readyCb));
+        builder.Build(), base::Bind(&Browser::onStart, base::Unretained(this), readyCb));
 }
 
 bool Browser::OpenUrl(const std::string& url, int width, int height, std::function<void()> readyCb) {
@@ -78,41 +127,3 @@ void Browser::DevToolsTargetReady() {
 void Browser::OnLoadEventFired(const headless::page::LoadEventFiredParams& params) {
     pageLoadedCb_();
 }
-
-extern "C" {
-
-Browser* create_browser() {
-    return new Browser();
-}
-
-void destroy_browser(Browser* browser) {
-    delete browser;
-}
-
-extern void signalReady(Browser*);
-
-int run_browser(Browser* browser) {
-    return browser->Run([browser]() { signalReady(browser); });
-}
-
-void shutdown_browser(Browser* browser) {
-    browser->Shutdown();
-}
-
-int open_url(Browser* browser, const char* cstr_url, int width, int height) {
-    std::string url(cstr_url);
-    free((void*)cstr_url);
-    return browser->OpenUrl(url, width, height, [browser]() { signalReady(browser); }) ? 1: 0;
-}
-
-extern void signalEvaluateResult(Browser* browser, int success, const char* result);
-
-void evaluate_script(Browser* browser, const char* cstr_script) {
-    std::string script(cstr_script);
-    free((void*)cstr_script);
-    browser->Evaluate(script, [browser](bool success, const std::string& result) {
-       signalEvaluateResult(browser, (success ? 1 : 0 ), result.c_str());
-    });
-}
-
-}  // extern "C"
