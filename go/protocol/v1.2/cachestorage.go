@@ -2,6 +2,9 @@ package protocol
 
 import (
 	"encoding/json"
+	"github.com/yijinliu/algo-lib/go/src/logging"
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
 )
 
 // Unique identifier of the Cache object.
@@ -28,18 +31,18 @@ type RequestCacheNamesResult struct {
 	Caches []*Cache `json:"caches"` // Caches for the security origin.
 }
 
-type RequestCacheNamesCB func(result *RequestCacheNamesResult, err error)
-
 // Requests cache names.
+
 type RequestCacheNamesCommand struct {
 	params *RequestCacheNamesParams
-	cb     RequestCacheNamesCB
+	result RequestCacheNamesResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewRequestCacheNamesCommand(params *RequestCacheNamesParams, cb RequestCacheNamesCB) *RequestCacheNamesCommand {
+func NewRequestCacheNamesCommand(params *RequestCacheNamesParams) *RequestCacheNamesCommand {
 	return &RequestCacheNamesCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -51,19 +54,66 @@ func (cmd *RequestCacheNamesCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *RequestCacheNamesCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *RequestCacheNamesCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func RequestCacheNames(params *RequestCacheNamesParams, conn *hc.Conn) (result *RequestCacheNamesResult, err error) {
+	cmd := NewRequestCacheNamesCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type RequestCacheNamesCB func(result *RequestCacheNamesResult, err error)
+
+// Requests cache names.
+
+type AsyncRequestCacheNamesCommand struct {
+	params *RequestCacheNamesParams
+	cb     RequestCacheNamesCB
+}
+
+func NewAsyncRequestCacheNamesCommand(params *RequestCacheNamesParams, cb RequestCacheNamesCB) *AsyncRequestCacheNamesCommand {
+	return &AsyncRequestCacheNamesCommand{
+		params: params,
+		cb:     cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncRequestCacheNamesCommand) Name() string {
+	return "CacheStorage.requestCacheNames"
+}
+
+func (cmd *AsyncRequestCacheNamesCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *RequestCacheNamesCommand) Result() *RequestCacheNamesResult {
+	return &cmd.result
+}
+
+func (cmd *RequestCacheNamesCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncRequestCacheNamesCommand) Done(data []byte, err error) {
+	var result RequestCacheNamesResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj RequestCacheNamesResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
@@ -78,18 +128,18 @@ type RequestEntriesResult struct {
 	HasMore          bool                     `json:"hasMore"`          // If true, there are more entries to fetch in the given range.
 }
 
-type RequestEntriesCB func(result *RequestEntriesResult, err error)
-
 // Requests data from cache.
+
 type RequestEntriesCommand struct {
 	params *RequestEntriesParams
-	cb     RequestEntriesCB
+	result RequestEntriesResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewRequestEntriesCommand(params *RequestEntriesParams, cb RequestEntriesCB) *RequestEntriesCommand {
+func NewRequestEntriesCommand(params *RequestEntriesParams) *RequestEntriesCommand {
 	return &RequestEntriesCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -101,19 +151,66 @@ func (cmd *RequestEntriesCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *RequestEntriesCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *RequestEntriesCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func RequestEntries(params *RequestEntriesParams, conn *hc.Conn) (result *RequestEntriesResult, err error) {
+	cmd := NewRequestEntriesCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type RequestEntriesCB func(result *RequestEntriesResult, err error)
+
+// Requests data from cache.
+
+type AsyncRequestEntriesCommand struct {
+	params *RequestEntriesParams
+	cb     RequestEntriesCB
+}
+
+func NewAsyncRequestEntriesCommand(params *RequestEntriesParams, cb RequestEntriesCB) *AsyncRequestEntriesCommand {
+	return &AsyncRequestEntriesCommand{
+		params: params,
+		cb:     cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncRequestEntriesCommand) Name() string {
+	return "CacheStorage.requestEntries"
+}
+
+func (cmd *AsyncRequestEntriesCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *RequestEntriesCommand) Result() *RequestEntriesResult {
+	return &cmd.result
+}
+
+func (cmd *RequestEntriesCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncRequestEntriesCommand) Done(data []byte, err error) {
+	var result RequestEntriesResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj RequestEntriesResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
@@ -121,18 +218,17 @@ type DeleteCacheParams struct {
 	CacheId CacheId `json:"cacheId"` // Id of cache for deletion.
 }
 
-type DeleteCacheCB func(err error)
-
 // Deletes a cache.
+
 type DeleteCacheCommand struct {
 	params *DeleteCacheParams
-	cb     DeleteCacheCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewDeleteCacheCommand(params *DeleteCacheParams, cb DeleteCacheCB) *DeleteCacheCommand {
+func NewDeleteCacheCommand(params *DeleteCacheParams) *DeleteCacheCommand {
 	return &DeleteCacheCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -144,10 +240,50 @@ func (cmd *DeleteCacheCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *DeleteCacheCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *DeleteCacheCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func DeleteCache(params *DeleteCacheParams, conn *hc.Conn) (err error) {
+	cmd := NewDeleteCacheCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type DeleteCacheCB func(err error)
+
+// Deletes a cache.
+
+type AsyncDeleteCacheCommand struct {
+	params *DeleteCacheParams
+	cb     DeleteCacheCB
+}
+
+func NewAsyncDeleteCacheCommand(params *DeleteCacheParams, cb DeleteCacheCB) *AsyncDeleteCacheCommand {
+	return &AsyncDeleteCacheCommand{
+		params: params,
+		cb:     cb,
 	}
+}
+
+func (cmd *AsyncDeleteCacheCommand) Name() string {
+	return "CacheStorage.deleteCache"
+}
+
+func (cmd *AsyncDeleteCacheCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *DeleteCacheCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncDeleteCacheCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type DeleteEntryParams struct {
@@ -155,18 +291,17 @@ type DeleteEntryParams struct {
 	Request string  `json:"request"` // URL spec of the request.
 }
 
-type DeleteEntryCB func(err error)
-
 // Deletes a cache entry.
+
 type DeleteEntryCommand struct {
 	params *DeleteEntryParams
-	cb     DeleteEntryCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewDeleteEntryCommand(params *DeleteEntryParams, cb DeleteEntryCB) *DeleteEntryCommand {
+func NewDeleteEntryCommand(params *DeleteEntryParams) *DeleteEntryCommand {
 	return &DeleteEntryCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -178,8 +313,48 @@ func (cmd *DeleteEntryCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *DeleteEntryCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *DeleteEntryCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func DeleteEntry(params *DeleteEntryParams, conn *hc.Conn) (err error) {
+	cmd := NewDeleteEntryCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type DeleteEntryCB func(err error)
+
+// Deletes a cache entry.
+
+type AsyncDeleteEntryCommand struct {
+	params *DeleteEntryParams
+	cb     DeleteEntryCB
+}
+
+func NewAsyncDeleteEntryCommand(params *DeleteEntryParams, cb DeleteEntryCB) *AsyncDeleteEntryCommand {
+	return &AsyncDeleteEntryCommand{
+		params: params,
+		cb:     cb,
 	}
+}
+
+func (cmd *AsyncDeleteEntryCommand) Name() string {
+	return "CacheStorage.deleteEntry"
+}
+
+func (cmd *AsyncDeleteEntryCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *DeleteEntryCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncDeleteEntryCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }

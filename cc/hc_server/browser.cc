@@ -20,19 +20,22 @@ const char kPort[] = "port";
 const char kAddr[] = "addr";
 const char kProxy[] = "proxy";
 
-const int kDefaultPort = 8080;
+const int kDefaultPort = 9222;
 const char kDefaultAddr[] = "127.0.0.1";
 
 }  // namespace
 
 int Browser::Run(int argc, const char** argv, std::function<void()> readyCb) {
-    headless::HeadlessBrowser::Options::Builder builder(argc, argv);
-	const base::CommandLine command_line(argc, argv);
+	base::CommandLine command_line(argc, argv);
+    command_line.AppendSwitch("disable-extensions");
+    command_line.AppendSwitch("disable-gpu");
+    base::CommandLine::SwitchMap switche_map = command_line.GetSwitches();
 
     // Parse port.
     int port = kDefaultPort;
     if (command_line.HasSwitch(kPort)) {
         const std::string port_str = command_line.GetSwitchValueASCII(kPort);
+        switche_map.erase(kPort);
         if (!base::StringToInt(port_str, &port) ||
             !base::IsValueInRangeForNumericType<uint16_t>(port)) {
             LOG(FATAL) << "Invalid devtools server port: " << port_str;
@@ -43,7 +46,7 @@ int Browser::Run(int argc, const char** argv, std::function<void()> readyCb) {
     std::string addr = kDefaultAddr;
     if (command_line.HasSwitch(kAddr)) {
         addr = command_line.GetSwitchValueASCII(kAddr);
-        LOG(WARNING) << "Opening devtools port on " << addr << " ...";
+        switche_map.erase(kAddr);
     }
     net::IPAddress parsed_addr;
     if (!net::ParseURLHostnameToAddress(addr, &parsed_addr)) {
@@ -51,10 +54,25 @@ int Browser::Run(int argc, const char** argv, std::function<void()> readyCb) {
     }
 
     // Has proxy server?
-    builder.EnableDevToolsServer(net::IPEndPoint(parsed_addr, base::checked_cast<uint16_t>(port)));
-
+    std::string proxy_server;
     if (command_line.HasSwitch(kProxy)) {
-        const std::string proxy_server = command_line.GetSwitchValueASCII(kProxy);
+        proxy_server = command_line.GetSwitchValueASCII(kProxy);
+        switche_map.erase(kProxy);
+    }
+
+    argc = switche_map.size();
+    argv = new const char*[argc];
+    auto* args = new std::string[argc];
+    int i = 0;
+    for (const auto& pair : switche_map) {
+        args[i] = "--" + pair.first + "=" + pair.second;
+        argv[i] = args[i].c_str();
+        i++;
+    }
+    headless::HeadlessBrowser::Options::Builder builder(argc, argv);
+    builder.EnableDevToolsServer(net::IPEndPoint(parsed_addr, base::checked_cast<uint16_t>(port)));
+    LOG(INFO) << "Opening devtools port on " << addr << ":" << port << " ...";
+    if (!proxy_server.empty()) {
         net::HostPortPair parsed_proxy_server = net::HostPortPair::FromString(proxy_server);
         if (parsed_proxy_server.host().empty() || !parsed_proxy_server.port()) {
             LOG(FATAL) << "Malformed proxy server: " << proxy_server;

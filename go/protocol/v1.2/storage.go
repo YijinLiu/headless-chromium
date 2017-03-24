@@ -1,5 +1,10 @@
 package protocol
 
+import (
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
+)
+
 // Enum of possible storage types.
 type StorageType string
 
@@ -19,18 +24,17 @@ type ClearDataForOriginParams struct {
 	StorageTypes string `json:"storageTypes"` // Comma separated origin names.
 }
 
-type ClearDataForOriginCB func(err error)
-
 // Clears storage for origin.
+
 type ClearDataForOriginCommand struct {
 	params *ClearDataForOriginParams
-	cb     ClearDataForOriginCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewClearDataForOriginCommand(params *ClearDataForOriginParams, cb ClearDataForOriginCB) *ClearDataForOriginCommand {
+func NewClearDataForOriginCommand(params *ClearDataForOriginParams) *ClearDataForOriginCommand {
 	return &ClearDataForOriginCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -42,8 +46,48 @@ func (cmd *ClearDataForOriginCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *ClearDataForOriginCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *ClearDataForOriginCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func ClearDataForOrigin(params *ClearDataForOriginParams, conn *hc.Conn) (err error) {
+	cmd := NewClearDataForOriginCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type ClearDataForOriginCB func(err error)
+
+// Clears storage for origin.
+
+type AsyncClearDataForOriginCommand struct {
+	params *ClearDataForOriginParams
+	cb     ClearDataForOriginCB
+}
+
+func NewAsyncClearDataForOriginCommand(params *ClearDataForOriginParams, cb ClearDataForOriginCB) *AsyncClearDataForOriginCommand {
+	return &AsyncClearDataForOriginCommand{
+		params: params,
+		cb:     cb,
 	}
+}
+
+func (cmd *AsyncClearDataForOriginCommand) Name() string {
+	return "Storage.clearDataForOrigin"
+}
+
+func (cmd *AsyncClearDataForOriginCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *ClearDataForOriginCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncClearDataForOriginCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }

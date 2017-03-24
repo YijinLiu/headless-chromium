@@ -3,6 +3,8 @@ package protocol
 import (
 	"encoding/json"
 	"github.com/yijinliu/algo-lib/go/src/logging"
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
 )
 
 // Detailed application cache resource information.
@@ -15,9 +17,9 @@ type ApplicationCacheResource struct {
 // Detailed application cache information.
 type ApplicationCache struct {
 	ManifestURL  string                      `json:"manifestURL"`  // Manifest URL.
-	Size         int                         `json:"size"`         // Application cache size.
-	CreationTime int                         `json:"creationTime"` // Application cache creation time.
-	UpdateTime   int                         `json:"updateTime"`   // Application cache update time.
+	Size         float64                     `json:"size"`         // Application cache size.
+	CreationTime float64                     `json:"creationTime"` // Application cache creation time.
+	UpdateTime   float64                     `json:"updateTime"`   // Application cache update time.
 	Resources    []*ApplicationCacheResource `json:"resources"`    // Application cache resources.
 }
 
@@ -32,17 +34,16 @@ type GetFramesWithManifestsResult struct {
 	FrameIds []*FrameWithManifest `json:"frameIds"` // Array of frame identifiers with manifest urls for each frame containing a document associated with some application cache.
 }
 
-type GetFramesWithManifestsCB func(result *GetFramesWithManifestsResult, err error)
-
 // Returns array of frame identifiers with manifest urls for each frame containing a document associated with some application cache.
+
 type GetFramesWithManifestsCommand struct {
-	cb GetFramesWithManifestsCB
+	result GetFramesWithManifestsResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetFramesWithManifestsCommand(cb GetFramesWithManifestsCB) *GetFramesWithManifestsCommand {
-	return &GetFramesWithManifestsCommand{
-		cb: cb,
-	}
+func NewGetFramesWithManifestsCommand() *GetFramesWithManifestsCommand {
+	return &GetFramesWithManifestsCommand{}
 }
 
 func (cmd *GetFramesWithManifestsCommand) Name() string {
@@ -53,33 +54,76 @@ func (cmd *GetFramesWithManifestsCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *GetFramesWithManifestsCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
-	}
-	if err != nil {
-		cmd.cb(nil, err)
-	} else {
-		var rj GetFramesWithManifestsResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
-	}
+func (cmd *GetFramesWithManifestsCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
 }
 
-type ApplicationCacheEnableCB func(err error)
-
-// Enables application cache domain notifications.
-type ApplicationCacheEnableCommand struct {
-	cb ApplicationCacheEnableCB
+func GetFramesWithManifests(conn *hc.Conn) (result *GetFramesWithManifestsResult, err error) {
+	cmd := NewGetFramesWithManifestsCommand()
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
 }
 
-func NewApplicationCacheEnableCommand(cb ApplicationCacheEnableCB) *ApplicationCacheEnableCommand {
-	return &ApplicationCacheEnableCommand{
+type GetFramesWithManifestsCB func(result *GetFramesWithManifestsResult, err error)
+
+// Returns array of frame identifiers with manifest urls for each frame containing a document associated with some application cache.
+
+type AsyncGetFramesWithManifestsCommand struct {
+	cb GetFramesWithManifestsCB
+}
+
+func NewAsyncGetFramesWithManifestsCommand(cb GetFramesWithManifestsCB) *AsyncGetFramesWithManifestsCommand {
+	return &AsyncGetFramesWithManifestsCommand{
 		cb: cb,
 	}
+}
+
+func (cmd *AsyncGetFramesWithManifestsCommand) Name() string {
+	return "ApplicationCache.getFramesWithManifests"
+}
+
+func (cmd *AsyncGetFramesWithManifestsCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *GetFramesWithManifestsCommand) Result() *GetFramesWithManifestsResult {
+	return &cmd.result
+}
+
+func (cmd *GetFramesWithManifestsCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetFramesWithManifestsCommand) Done(data []byte, err error) {
+	var result GetFramesWithManifestsResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
+		cmd.cb(nil, err)
+	} else {
+		cmd.cb(&result, nil)
+	}
+}
+
+// Enables application cache domain notifications.
+
+type ApplicationCacheEnableCommand struct {
+	wg  sync.WaitGroup
+	err error
+}
+
+func NewApplicationCacheEnableCommand() *ApplicationCacheEnableCommand {
+	return &ApplicationCacheEnableCommand{}
 }
 
 func (cmd *ApplicationCacheEnableCommand) Name() string {
@@ -90,10 +134,48 @@ func (cmd *ApplicationCacheEnableCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *ApplicationCacheEnableCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *ApplicationCacheEnableCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func ApplicationCacheEnable(conn *hc.Conn) (err error) {
+	cmd := NewApplicationCacheEnableCommand()
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type ApplicationCacheEnableCB func(err error)
+
+// Enables application cache domain notifications.
+
+type AsyncApplicationCacheEnableCommand struct {
+	cb ApplicationCacheEnableCB
+}
+
+func NewAsyncApplicationCacheEnableCommand(cb ApplicationCacheEnableCB) *AsyncApplicationCacheEnableCommand {
+	return &AsyncApplicationCacheEnableCommand{
+		cb: cb,
 	}
+}
+
+func (cmd *AsyncApplicationCacheEnableCommand) Name() string {
+	return "ApplicationCache.enable"
+}
+
+func (cmd *AsyncApplicationCacheEnableCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *ApplicationCacheEnableCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncApplicationCacheEnableCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type GetManifestForFrameParams struct {
@@ -104,18 +186,18 @@ type GetManifestForFrameResult struct {
 	ManifestURL string `json:"manifestURL"` // Manifest URL for document in the given frame.
 }
 
-type GetManifestForFrameCB func(result *GetManifestForFrameResult, err error)
-
 // Returns manifest URL for document in the given frame.
+
 type GetManifestForFrameCommand struct {
 	params *GetManifestForFrameParams
-	cb     GetManifestForFrameCB
+	result GetManifestForFrameResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetManifestForFrameCommand(params *GetManifestForFrameParams, cb GetManifestForFrameCB) *GetManifestForFrameCommand {
+func NewGetManifestForFrameCommand(params *GetManifestForFrameParams) *GetManifestForFrameCommand {
 	return &GetManifestForFrameCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -127,19 +209,66 @@ func (cmd *GetManifestForFrameCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *GetManifestForFrameCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *GetManifestForFrameCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func GetManifestForFrame(params *GetManifestForFrameParams, conn *hc.Conn) (result *GetManifestForFrameResult, err error) {
+	cmd := NewGetManifestForFrameCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type GetManifestForFrameCB func(result *GetManifestForFrameResult, err error)
+
+// Returns manifest URL for document in the given frame.
+
+type AsyncGetManifestForFrameCommand struct {
+	params *GetManifestForFrameParams
+	cb     GetManifestForFrameCB
+}
+
+func NewAsyncGetManifestForFrameCommand(params *GetManifestForFrameParams, cb GetManifestForFrameCB) *AsyncGetManifestForFrameCommand {
+	return &AsyncGetManifestForFrameCommand{
+		params: params,
+		cb:     cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncGetManifestForFrameCommand) Name() string {
+	return "ApplicationCache.getManifestForFrame"
+}
+
+func (cmd *AsyncGetManifestForFrameCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *GetManifestForFrameCommand) Result() *GetManifestForFrameResult {
+	return &cmd.result
+}
+
+func (cmd *GetManifestForFrameCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetManifestForFrameCommand) Done(data []byte, err error) {
+	var result GetManifestForFrameResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj GetManifestForFrameResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
@@ -151,18 +280,18 @@ type GetApplicationCacheForFrameResult struct {
 	ApplicationCache *ApplicationCache `json:"applicationCache"` // Relevant application cache data for the document in given frame.
 }
 
-type GetApplicationCacheForFrameCB func(result *GetApplicationCacheForFrameResult, err error)
-
 // Returns relevant application cache data for the document in given frame.
+
 type GetApplicationCacheForFrameCommand struct {
 	params *GetApplicationCacheForFrameParams
-	cb     GetApplicationCacheForFrameCB
+	result GetApplicationCacheForFrameResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetApplicationCacheForFrameCommand(params *GetApplicationCacheForFrameParams, cb GetApplicationCacheForFrameCB) *GetApplicationCacheForFrameCommand {
+func NewGetApplicationCacheForFrameCommand(params *GetApplicationCacheForFrameParams) *GetApplicationCacheForFrameCommand {
 	return &GetApplicationCacheForFrameCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -174,19 +303,66 @@ func (cmd *GetApplicationCacheForFrameCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *GetApplicationCacheForFrameCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *GetApplicationCacheForFrameCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func GetApplicationCacheForFrame(params *GetApplicationCacheForFrameParams, conn *hc.Conn) (result *GetApplicationCacheForFrameResult, err error) {
+	cmd := NewGetApplicationCacheForFrameCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type GetApplicationCacheForFrameCB func(result *GetApplicationCacheForFrameResult, err error)
+
+// Returns relevant application cache data for the document in given frame.
+
+type AsyncGetApplicationCacheForFrameCommand struct {
+	params *GetApplicationCacheForFrameParams
+	cb     GetApplicationCacheForFrameCB
+}
+
+func NewAsyncGetApplicationCacheForFrameCommand(params *GetApplicationCacheForFrameParams, cb GetApplicationCacheForFrameCB) *AsyncGetApplicationCacheForFrameCommand {
+	return &AsyncGetApplicationCacheForFrameCommand{
+		params: params,
+		cb:     cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncGetApplicationCacheForFrameCommand) Name() string {
+	return "ApplicationCache.getApplicationCacheForFrame"
+}
+
+func (cmd *AsyncGetApplicationCacheForFrameCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *GetApplicationCacheForFrameCommand) Result() *GetApplicationCacheForFrameResult {
+	return &cmd.result
+}
+
+func (cmd *GetApplicationCacheForFrameCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetApplicationCacheForFrameCommand) Done(data []byte, err error) {
+	var result GetApplicationCacheForFrameResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj GetApplicationCacheForFrameResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
@@ -196,62 +372,30 @@ type ApplicationCacheStatusUpdatedEvent struct {
 	Status      int      `json:"status"`      // Updated application cache status.
 }
 
-type ApplicationCacheStatusUpdatedEventSink struct {
-	events chan *ApplicationCacheStatusUpdatedEvent
-}
-
-func NewApplicationCacheStatusUpdatedEventSink(bufSize int) *ApplicationCacheStatusUpdatedEventSink {
-	return &ApplicationCacheStatusUpdatedEventSink{
-		events: make(chan *ApplicationCacheStatusUpdatedEvent, bufSize),
-	}
-}
-
-func (s *ApplicationCacheStatusUpdatedEventSink) Name() string {
-	return "ApplicationCache.applicationCacheStatusUpdated"
-}
-
-func (s *ApplicationCacheStatusUpdatedEventSink) OnEvent(params []byte) {
-	evt := &ApplicationCacheStatusUpdatedEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnApplicationCacheStatusUpdated(conn *hc.Conn, cb func(evt *ApplicationCacheStatusUpdatedEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &ApplicationCacheStatusUpdatedEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("ApplicationCache.applicationCacheStatusUpdated", sink)
 }
 
 type NetworkStateUpdatedEvent struct {
 	IsNowOnline bool `json:"isNowOnline"`
 }
 
-type NetworkStateUpdatedEventSink struct {
-	events chan *NetworkStateUpdatedEvent
-}
-
-func NewNetworkStateUpdatedEventSink(bufSize int) *NetworkStateUpdatedEventSink {
-	return &NetworkStateUpdatedEventSink{
-		events: make(chan *NetworkStateUpdatedEvent, bufSize),
-	}
-}
-
-func (s *NetworkStateUpdatedEventSink) Name() string {
-	return "ApplicationCache.networkStateUpdated"
-}
-
-func (s *NetworkStateUpdatedEventSink) OnEvent(params []byte) {
-	evt := &NetworkStateUpdatedEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnNetworkStateUpdated(conn *hc.Conn, cb func(evt *NetworkStateUpdatedEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &NetworkStateUpdatedEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("ApplicationCache.networkStateUpdated", sink)
 }

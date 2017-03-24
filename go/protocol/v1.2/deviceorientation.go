@@ -1,23 +1,27 @@
 package protocol
 
-type DeviceOrientationSetDeviceOrientationOverrideParams struct {
-	Alpha int `json:"alpha"` // Mock alpha
-	Beta  int `json:"beta"`  // Mock beta
-	Gamma int `json:"gamma"` // Mock gamma
-}
+import (
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
+)
 
-type DeviceOrientationSetDeviceOrientationOverrideCB func(err error)
+type DeviceOrientationSetDeviceOrientationOverrideParams struct {
+	Alpha float64 `json:"alpha"` // Mock alpha
+	Beta  float64 `json:"beta"`  // Mock beta
+	Gamma float64 `json:"gamma"` // Mock gamma
+}
 
 // Overrides the Device Orientation.
+
 type DeviceOrientationSetDeviceOrientationOverrideCommand struct {
 	params *DeviceOrientationSetDeviceOrientationOverrideParams
-	cb     DeviceOrientationSetDeviceOrientationOverrideCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewDeviceOrientationSetDeviceOrientationOverrideCommand(params *DeviceOrientationSetDeviceOrientationOverrideParams, cb DeviceOrientationSetDeviceOrientationOverrideCB) *DeviceOrientationSetDeviceOrientationOverrideCommand {
+func NewDeviceOrientationSetDeviceOrientationOverrideCommand(params *DeviceOrientationSetDeviceOrientationOverrideParams) *DeviceOrientationSetDeviceOrientationOverrideCommand {
 	return &DeviceOrientationSetDeviceOrientationOverrideCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -29,23 +33,61 @@ func (cmd *DeviceOrientationSetDeviceOrientationOverrideCommand) Params() interf
 	return cmd.params
 }
 
-func (cmd *DeviceOrientationSetDeviceOrientationOverrideCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *DeviceOrientationSetDeviceOrientationOverrideCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func DeviceOrientationSetDeviceOrientationOverride(params *DeviceOrientationSetDeviceOrientationOverrideParams, conn *hc.Conn) (err error) {
+	cmd := NewDeviceOrientationSetDeviceOrientationOverrideCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type DeviceOrientationSetDeviceOrientationOverrideCB func(err error)
+
+// Overrides the Device Orientation.
+
+type AsyncDeviceOrientationSetDeviceOrientationOverrideCommand struct {
+	params *DeviceOrientationSetDeviceOrientationOverrideParams
+	cb     DeviceOrientationSetDeviceOrientationOverrideCB
+}
+
+func NewAsyncDeviceOrientationSetDeviceOrientationOverrideCommand(params *DeviceOrientationSetDeviceOrientationOverrideParams, cb DeviceOrientationSetDeviceOrientationOverrideCB) *AsyncDeviceOrientationSetDeviceOrientationOverrideCommand {
+	return &AsyncDeviceOrientationSetDeviceOrientationOverrideCommand{
+		params: params,
+		cb:     cb,
 	}
 }
 
-type DeviceOrientationClearDeviceOrientationOverrideCB func(err error)
+func (cmd *AsyncDeviceOrientationSetDeviceOrientationOverrideCommand) Name() string {
+	return "DeviceOrientation.setDeviceOrientationOverride"
+}
+
+func (cmd *AsyncDeviceOrientationSetDeviceOrientationOverrideCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *DeviceOrientationSetDeviceOrientationOverrideCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncDeviceOrientationSetDeviceOrientationOverrideCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
 
 // Clears the overridden Device Orientation.
+
 type DeviceOrientationClearDeviceOrientationOverrideCommand struct {
-	cb DeviceOrientationClearDeviceOrientationOverrideCB
+	wg  sync.WaitGroup
+	err error
 }
 
-func NewDeviceOrientationClearDeviceOrientationOverrideCommand(cb DeviceOrientationClearDeviceOrientationOverrideCB) *DeviceOrientationClearDeviceOrientationOverrideCommand {
-	return &DeviceOrientationClearDeviceOrientationOverrideCommand{
-		cb: cb,
-	}
+func NewDeviceOrientationClearDeviceOrientationOverrideCommand() *DeviceOrientationClearDeviceOrientationOverrideCommand {
+	return &DeviceOrientationClearDeviceOrientationOverrideCommand{}
 }
 
 func (cmd *DeviceOrientationClearDeviceOrientationOverrideCommand) Name() string {
@@ -56,8 +98,46 @@ func (cmd *DeviceOrientationClearDeviceOrientationOverrideCommand) Params() inte
 	return nil
 }
 
-func (cmd *DeviceOrientationClearDeviceOrientationOverrideCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *DeviceOrientationClearDeviceOrientationOverrideCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func DeviceOrientationClearDeviceOrientationOverride(conn *hc.Conn) (err error) {
+	cmd := NewDeviceOrientationClearDeviceOrientationOverrideCommand()
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type DeviceOrientationClearDeviceOrientationOverrideCB func(err error)
+
+// Clears the overridden Device Orientation.
+
+type AsyncDeviceOrientationClearDeviceOrientationOverrideCommand struct {
+	cb DeviceOrientationClearDeviceOrientationOverrideCB
+}
+
+func NewAsyncDeviceOrientationClearDeviceOrientationOverrideCommand(cb DeviceOrientationClearDeviceOrientationOverrideCB) *AsyncDeviceOrientationClearDeviceOrientationOverrideCommand {
+	return &AsyncDeviceOrientationClearDeviceOrientationOverrideCommand{
+		cb: cb,
 	}
+}
+
+func (cmd *AsyncDeviceOrientationClearDeviceOrientationOverrideCommand) Name() string {
+	return "DeviceOrientation.clearDeviceOrientationOverride"
+}
+
+func (cmd *AsyncDeviceOrientationClearDeviceOrientationOverrideCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *DeviceOrientationClearDeviceOrientationOverrideCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncDeviceOrientationClearDeviceOrientationOverrideCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }

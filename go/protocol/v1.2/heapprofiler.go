@@ -3,6 +3,8 @@ package protocol
 import (
 	"encoding/json"
 	"github.com/yijinliu/algo-lib/go/src/logging"
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
 )
 
 // Heap snapshot object id.
@@ -11,7 +13,7 @@ type HeapSnapshotObjectId string
 // Sampling Heap Profile node. Holds callsite information, allocation statistics and child nodes.
 type SamplingHeapProfileNode struct {
 	CallFrame *RuntimeCallFrame          `json:"callFrame"` // Function location.
-	SelfSize  int                        `json:"selfSize"`  // Allocations size in bytes for the node excluding children.
+	SelfSize  float64                    `json:"selfSize"`  // Allocations size in bytes for the node excluding children.
 	Children  []*SamplingHeapProfileNode `json:"children"`  // Child nodes.
 }
 
@@ -20,16 +22,13 @@ type SamplingHeapProfile struct {
 	Head *SamplingHeapProfileNode `json:"head"`
 }
 
-type HeapProfilerEnableCB func(err error)
-
 type HeapProfilerEnableCommand struct {
-	cb HeapProfilerEnableCB
+	wg  sync.WaitGroup
+	err error
 }
 
-func NewHeapProfilerEnableCommand(cb HeapProfilerEnableCB) *HeapProfilerEnableCommand {
-	return &HeapProfilerEnableCommand{
-		cb: cb,
-	}
+func NewHeapProfilerEnableCommand() *HeapProfilerEnableCommand {
+	return &HeapProfilerEnableCommand{}
 }
 
 func (cmd *HeapProfilerEnableCommand) Name() string {
@@ -40,22 +39,55 @@ func (cmd *HeapProfilerEnableCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *HeapProfilerEnableCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
-	}
+func (cmd *HeapProfilerEnableCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
 }
 
-type HeapProfilerDisableCB func(err error)
-
-type HeapProfilerDisableCommand struct {
-	cb HeapProfilerDisableCB
+func HeapProfilerEnable(conn *hc.Conn) (err error) {
+	cmd := NewHeapProfilerEnableCommand()
+	cmd.Run(conn)
+	return cmd.err
 }
 
-func NewHeapProfilerDisableCommand(cb HeapProfilerDisableCB) *HeapProfilerDisableCommand {
-	return &HeapProfilerDisableCommand{
+type HeapProfilerEnableCB func(err error)
+
+type AsyncHeapProfilerEnableCommand struct {
+	cb HeapProfilerEnableCB
+}
+
+func NewAsyncHeapProfilerEnableCommand(cb HeapProfilerEnableCB) *AsyncHeapProfilerEnableCommand {
+	return &AsyncHeapProfilerEnableCommand{
 		cb: cb,
 	}
+}
+
+func (cmd *AsyncHeapProfilerEnableCommand) Name() string {
+	return "HeapProfiler.enable"
+}
+
+func (cmd *AsyncHeapProfilerEnableCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *HeapProfilerEnableCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncHeapProfilerEnableCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
+
+type HeapProfilerDisableCommand struct {
+	wg  sync.WaitGroup
+	err error
+}
+
+func NewHeapProfilerDisableCommand() *HeapProfilerDisableCommand {
+	return &HeapProfilerDisableCommand{}
 }
 
 func (cmd *HeapProfilerDisableCommand) Name() string {
@@ -66,27 +98,61 @@ func (cmd *HeapProfilerDisableCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *HeapProfilerDisableCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *HeapProfilerDisableCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func HeapProfilerDisable(conn *hc.Conn) (err error) {
+	cmd := NewHeapProfilerDisableCommand()
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type HeapProfilerDisableCB func(err error)
+
+type AsyncHeapProfilerDisableCommand struct {
+	cb HeapProfilerDisableCB
+}
+
+func NewAsyncHeapProfilerDisableCommand(cb HeapProfilerDisableCB) *AsyncHeapProfilerDisableCommand {
+	return &AsyncHeapProfilerDisableCommand{
+		cb: cb,
 	}
 }
 
-type StartTrackingHeapObjectsParams struct {
-	TrackAllocations bool `json:"trackAllocations"`
+func (cmd *AsyncHeapProfilerDisableCommand) Name() string {
+	return "HeapProfiler.disable"
 }
 
-type StartTrackingHeapObjectsCB func(err error)
+func (cmd *AsyncHeapProfilerDisableCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *HeapProfilerDisableCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncHeapProfilerDisableCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
+
+type StartTrackingHeapObjectsParams struct {
+	TrackAllocations bool `json:"trackAllocations,omitempty"`
+}
 
 type StartTrackingHeapObjectsCommand struct {
 	params *StartTrackingHeapObjectsParams
-	cb     StartTrackingHeapObjectsCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewStartTrackingHeapObjectsCommand(params *StartTrackingHeapObjectsParams, cb StartTrackingHeapObjectsCB) *StartTrackingHeapObjectsCommand {
+func NewStartTrackingHeapObjectsCommand(params *StartTrackingHeapObjectsParams) *StartTrackingHeapObjectsCommand {
 	return &StartTrackingHeapObjectsCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -98,27 +164,63 @@ func (cmd *StartTrackingHeapObjectsCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *StartTrackingHeapObjectsCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *StartTrackingHeapObjectsCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func StartTrackingHeapObjects(params *StartTrackingHeapObjectsParams, conn *hc.Conn) (err error) {
+	cmd := NewStartTrackingHeapObjectsCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type StartTrackingHeapObjectsCB func(err error)
+
+type AsyncStartTrackingHeapObjectsCommand struct {
+	params *StartTrackingHeapObjectsParams
+	cb     StartTrackingHeapObjectsCB
+}
+
+func NewAsyncStartTrackingHeapObjectsCommand(params *StartTrackingHeapObjectsParams, cb StartTrackingHeapObjectsCB) *AsyncStartTrackingHeapObjectsCommand {
+	return &AsyncStartTrackingHeapObjectsCommand{
+		params: params,
+		cb:     cb,
 	}
 }
 
-type StopTrackingHeapObjectsParams struct {
-	ReportProgress bool `json:"reportProgress"` // If true 'reportHeapSnapshotProgress' events will be generated while snapshot is being taken when the tracking is stopped.
+func (cmd *AsyncStartTrackingHeapObjectsCommand) Name() string {
+	return "HeapProfiler.startTrackingHeapObjects"
 }
 
-type StopTrackingHeapObjectsCB func(err error)
+func (cmd *AsyncStartTrackingHeapObjectsCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *StartTrackingHeapObjectsCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncStartTrackingHeapObjectsCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
+
+type StopTrackingHeapObjectsParams struct {
+	ReportProgress bool `json:"reportProgress,omitempty"` // If true 'reportHeapSnapshotProgress' events will be generated while snapshot is being taken when the tracking is stopped.
+}
 
 type StopTrackingHeapObjectsCommand struct {
 	params *StopTrackingHeapObjectsParams
-	cb     StopTrackingHeapObjectsCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewStopTrackingHeapObjectsCommand(params *StopTrackingHeapObjectsParams, cb StopTrackingHeapObjectsCB) *StopTrackingHeapObjectsCommand {
+func NewStopTrackingHeapObjectsCommand(params *StopTrackingHeapObjectsParams) *StopTrackingHeapObjectsCommand {
 	return &StopTrackingHeapObjectsCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -130,27 +232,63 @@ func (cmd *StopTrackingHeapObjectsCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *StopTrackingHeapObjectsCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *StopTrackingHeapObjectsCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func StopTrackingHeapObjects(params *StopTrackingHeapObjectsParams, conn *hc.Conn) (err error) {
+	cmd := NewStopTrackingHeapObjectsCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type StopTrackingHeapObjectsCB func(err error)
+
+type AsyncStopTrackingHeapObjectsCommand struct {
+	params *StopTrackingHeapObjectsParams
+	cb     StopTrackingHeapObjectsCB
+}
+
+func NewAsyncStopTrackingHeapObjectsCommand(params *StopTrackingHeapObjectsParams, cb StopTrackingHeapObjectsCB) *AsyncStopTrackingHeapObjectsCommand {
+	return &AsyncStopTrackingHeapObjectsCommand{
+		params: params,
+		cb:     cb,
 	}
 }
 
-type TakeHeapSnapshotParams struct {
-	ReportProgress bool `json:"reportProgress"` // If true 'reportHeapSnapshotProgress' events will be generated while snapshot is being taken.
+func (cmd *AsyncStopTrackingHeapObjectsCommand) Name() string {
+	return "HeapProfiler.stopTrackingHeapObjects"
 }
 
-type TakeHeapSnapshotCB func(err error)
+func (cmd *AsyncStopTrackingHeapObjectsCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *StopTrackingHeapObjectsCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncStopTrackingHeapObjectsCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
+
+type TakeHeapSnapshotParams struct {
+	ReportProgress bool `json:"reportProgress,omitempty"` // If true 'reportHeapSnapshotProgress' events will be generated while snapshot is being taken.
+}
 
 type TakeHeapSnapshotCommand struct {
 	params *TakeHeapSnapshotParams
-	cb     TakeHeapSnapshotCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewTakeHeapSnapshotCommand(params *TakeHeapSnapshotParams, cb TakeHeapSnapshotCB) *TakeHeapSnapshotCommand {
+func NewTakeHeapSnapshotCommand(params *TakeHeapSnapshotParams) *TakeHeapSnapshotCommand {
 	return &TakeHeapSnapshotCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -162,22 +300,57 @@ func (cmd *TakeHeapSnapshotCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *TakeHeapSnapshotCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *TakeHeapSnapshotCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func TakeHeapSnapshot(params *TakeHeapSnapshotParams, conn *hc.Conn) (err error) {
+	cmd := NewTakeHeapSnapshotCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type TakeHeapSnapshotCB func(err error)
+
+type AsyncTakeHeapSnapshotCommand struct {
+	params *TakeHeapSnapshotParams
+	cb     TakeHeapSnapshotCB
+}
+
+func NewAsyncTakeHeapSnapshotCommand(params *TakeHeapSnapshotParams, cb TakeHeapSnapshotCB) *AsyncTakeHeapSnapshotCommand {
+	return &AsyncTakeHeapSnapshotCommand{
+		params: params,
+		cb:     cb,
 	}
 }
 
-type CollectGarbageCB func(err error)
+func (cmd *AsyncTakeHeapSnapshotCommand) Name() string {
+	return "HeapProfiler.takeHeapSnapshot"
+}
+
+func (cmd *AsyncTakeHeapSnapshotCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *TakeHeapSnapshotCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncTakeHeapSnapshotCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
 
 type CollectGarbageCommand struct {
-	cb CollectGarbageCB
+	wg  sync.WaitGroup
+	err error
 }
 
-func NewCollectGarbageCommand(cb CollectGarbageCB) *CollectGarbageCommand {
-	return &CollectGarbageCommand{
-		cb: cb,
-	}
+func NewCollectGarbageCommand() *CollectGarbageCommand {
+	return &CollectGarbageCommand{}
 }
 
 func (cmd *CollectGarbageCommand) Name() string {
@@ -188,32 +361,67 @@ func (cmd *CollectGarbageCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *CollectGarbageCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *CollectGarbageCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func CollectGarbage(conn *hc.Conn) (err error) {
+	cmd := NewCollectGarbageCommand()
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type CollectGarbageCB func(err error)
+
+type AsyncCollectGarbageCommand struct {
+	cb CollectGarbageCB
+}
+
+func NewAsyncCollectGarbageCommand(cb CollectGarbageCB) *AsyncCollectGarbageCommand {
+	return &AsyncCollectGarbageCommand{
+		cb: cb,
 	}
+}
+
+func (cmd *AsyncCollectGarbageCommand) Name() string {
+	return "HeapProfiler.collectGarbage"
+}
+
+func (cmd *AsyncCollectGarbageCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *CollectGarbageCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncCollectGarbageCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type GetObjectByHeapObjectIdParams struct {
 	ObjectId    HeapSnapshotObjectId `json:"objectId"`
-	ObjectGroup string               `json:"objectGroup"` // Symbolic group name that can be used to release multiple objects.
+	ObjectGroup string               `json:"objectGroup,omitempty"` // Symbolic group name that can be used to release multiple objects.
 }
 
 type GetObjectByHeapObjectIdResult struct {
 	Result *RemoteObject `json:"result"` // Evaluation result.
 }
 
-type GetObjectByHeapObjectIdCB func(result *GetObjectByHeapObjectIdResult, err error)
-
 type GetObjectByHeapObjectIdCommand struct {
 	params *GetObjectByHeapObjectIdParams
-	cb     GetObjectByHeapObjectIdCB
+	result GetObjectByHeapObjectIdResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetObjectByHeapObjectIdCommand(params *GetObjectByHeapObjectIdParams, cb GetObjectByHeapObjectIdCB) *GetObjectByHeapObjectIdCommand {
+func NewGetObjectByHeapObjectIdCommand(params *GetObjectByHeapObjectIdParams) *GetObjectByHeapObjectIdCommand {
 	return &GetObjectByHeapObjectIdCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -225,19 +433,64 @@ func (cmd *GetObjectByHeapObjectIdCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *GetObjectByHeapObjectIdCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *GetObjectByHeapObjectIdCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func GetObjectByHeapObjectId(params *GetObjectByHeapObjectIdParams, conn *hc.Conn) (result *GetObjectByHeapObjectIdResult, err error) {
+	cmd := NewGetObjectByHeapObjectIdCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type GetObjectByHeapObjectIdCB func(result *GetObjectByHeapObjectIdResult, err error)
+
+type AsyncGetObjectByHeapObjectIdCommand struct {
+	params *GetObjectByHeapObjectIdParams
+	cb     GetObjectByHeapObjectIdCB
+}
+
+func NewAsyncGetObjectByHeapObjectIdCommand(params *GetObjectByHeapObjectIdParams, cb GetObjectByHeapObjectIdCB) *AsyncGetObjectByHeapObjectIdCommand {
+	return &AsyncGetObjectByHeapObjectIdCommand{
+		params: params,
+		cb:     cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncGetObjectByHeapObjectIdCommand) Name() string {
+	return "HeapProfiler.getObjectByHeapObjectId"
+}
+
+func (cmd *AsyncGetObjectByHeapObjectIdCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *GetObjectByHeapObjectIdCommand) Result() *GetObjectByHeapObjectIdResult {
+	return &cmd.result
+}
+
+func (cmd *GetObjectByHeapObjectIdCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetObjectByHeapObjectIdCommand) Done(data []byte, err error) {
+	var result GetObjectByHeapObjectIdResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj GetObjectByHeapObjectIdResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
@@ -245,18 +498,17 @@ type AddInspectedHeapObjectParams struct {
 	HeapObjectId HeapSnapshotObjectId `json:"heapObjectId"` // Heap snapshot object id to be accessible by means of $x command line API.
 }
 
-type AddInspectedHeapObjectCB func(err error)
-
 // Enables console to refer to the node with given id via $x (see Command Line API for more details $x functions).
+
 type AddInspectedHeapObjectCommand struct {
 	params *AddInspectedHeapObjectParams
-	cb     AddInspectedHeapObjectCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewAddInspectedHeapObjectCommand(params *AddInspectedHeapObjectParams, cb AddInspectedHeapObjectCB) *AddInspectedHeapObjectCommand {
+func NewAddInspectedHeapObjectCommand(params *AddInspectedHeapObjectParams) *AddInspectedHeapObjectCommand {
 	return &AddInspectedHeapObjectCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -268,10 +520,50 @@ func (cmd *AddInspectedHeapObjectCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *AddInspectedHeapObjectCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *AddInspectedHeapObjectCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func AddInspectedHeapObject(params *AddInspectedHeapObjectParams, conn *hc.Conn) (err error) {
+	cmd := NewAddInspectedHeapObjectCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type AddInspectedHeapObjectCB func(err error)
+
+// Enables console to refer to the node with given id via $x (see Command Line API for more details $x functions).
+
+type AsyncAddInspectedHeapObjectCommand struct {
+	params *AddInspectedHeapObjectParams
+	cb     AddInspectedHeapObjectCB
+}
+
+func NewAsyncAddInspectedHeapObjectCommand(params *AddInspectedHeapObjectParams, cb AddInspectedHeapObjectCB) *AsyncAddInspectedHeapObjectCommand {
+	return &AsyncAddInspectedHeapObjectCommand{
+		params: params,
+		cb:     cb,
 	}
+}
+
+func (cmd *AsyncAddInspectedHeapObjectCommand) Name() string {
+	return "HeapProfiler.addInspectedHeapObject"
+}
+
+func (cmd *AsyncAddInspectedHeapObjectCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *AddInspectedHeapObjectCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncAddInspectedHeapObjectCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type GetHeapObjectIdParams struct {
@@ -282,17 +574,16 @@ type GetHeapObjectIdResult struct {
 	HeapSnapshotObjectId HeapSnapshotObjectId `json:"heapSnapshotObjectId"` // Id of the heap snapshot object corresponding to the passed remote object id.
 }
 
-type GetHeapObjectIdCB func(result *GetHeapObjectIdResult, err error)
-
 type GetHeapObjectIdCommand struct {
 	params *GetHeapObjectIdParams
-	cb     GetHeapObjectIdCB
+	result GetHeapObjectIdResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetHeapObjectIdCommand(params *GetHeapObjectIdParams, cb GetHeapObjectIdCB) *GetHeapObjectIdCommand {
+func NewGetHeapObjectIdCommand(params *GetHeapObjectIdParams) *GetHeapObjectIdCommand {
 	return &GetHeapObjectIdCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -304,37 +595,80 @@ func (cmd *GetHeapObjectIdCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *GetHeapObjectIdCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *GetHeapObjectIdCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func GetHeapObjectId(params *GetHeapObjectIdParams, conn *hc.Conn) (result *GetHeapObjectIdResult, err error) {
+	cmd := NewGetHeapObjectIdCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type GetHeapObjectIdCB func(result *GetHeapObjectIdResult, err error)
+
+type AsyncGetHeapObjectIdCommand struct {
+	params *GetHeapObjectIdParams
+	cb     GetHeapObjectIdCB
+}
+
+func NewAsyncGetHeapObjectIdCommand(params *GetHeapObjectIdParams, cb GetHeapObjectIdCB) *AsyncGetHeapObjectIdCommand {
+	return &AsyncGetHeapObjectIdCommand{
+		params: params,
+		cb:     cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncGetHeapObjectIdCommand) Name() string {
+	return "HeapProfiler.getHeapObjectId"
+}
+
+func (cmd *AsyncGetHeapObjectIdCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *GetHeapObjectIdCommand) Result() *GetHeapObjectIdResult {
+	return &cmd.result
+}
+
+func (cmd *GetHeapObjectIdCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetHeapObjectIdCommand) Done(data []byte, err error) {
+	var result GetHeapObjectIdResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj GetHeapObjectIdResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
 type StartSamplingParams struct {
-	SamplingInterval int `json:"samplingInterval"` // Average sample interval in bytes. Poisson distribution is used for the intervals. The default value is 32768 bytes.
+	SamplingInterval float64 `json:"samplingInterval,omitempty"` // Average sample interval in bytes. Poisson distribution is used for the intervals. The default value is 32768 bytes.
 }
-
-type StartSamplingCB func(err error)
 
 type StartSamplingCommand struct {
 	params *StartSamplingParams
-	cb     StartSamplingCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewStartSamplingCommand(params *StartSamplingParams, cb StartSamplingCB) *StartSamplingCommand {
+func NewStartSamplingCommand(params *StartSamplingParams) *StartSamplingCommand {
 	return &StartSamplingCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -346,26 +680,62 @@ func (cmd *StartSamplingCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *StartSamplingCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *StartSamplingCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func StartSampling(params *StartSamplingParams, conn *hc.Conn) (err error) {
+	cmd := NewStartSamplingCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type StartSamplingCB func(err error)
+
+type AsyncStartSamplingCommand struct {
+	params *StartSamplingParams
+	cb     StartSamplingCB
+}
+
+func NewAsyncStartSamplingCommand(params *StartSamplingParams, cb StartSamplingCB) *AsyncStartSamplingCommand {
+	return &AsyncStartSamplingCommand{
+		params: params,
+		cb:     cb,
 	}
+}
+
+func (cmd *AsyncStartSamplingCommand) Name() string {
+	return "HeapProfiler.startSampling"
+}
+
+func (cmd *AsyncStartSamplingCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *StartSamplingCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncStartSamplingCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type StopSamplingResult struct {
 	Profile *SamplingHeapProfile `json:"profile"` // Recorded sampling heap profile.
 }
 
-type StopSamplingCB func(result *StopSamplingResult, err error)
-
 type StopSamplingCommand struct {
-	cb StopSamplingCB
+	result StopSamplingResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewStopSamplingCommand(cb StopSamplingCB) *StopSamplingCommand {
-	return &StopSamplingCommand{
-		cb: cb,
-	}
+func NewStopSamplingCommand() *StopSamplingCommand {
+	return &StopSamplingCommand{}
 }
 
 func (cmd *StopSamplingCommand) Name() string {
@@ -376,19 +746,62 @@ func (cmd *StopSamplingCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *StopSamplingCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *StopSamplingCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func StopSampling(conn *hc.Conn) (result *StopSamplingResult, err error) {
+	cmd := NewStopSamplingCommand()
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type StopSamplingCB func(result *StopSamplingResult, err error)
+
+type AsyncStopSamplingCommand struct {
+	cb StopSamplingCB
+}
+
+func NewAsyncStopSamplingCommand(cb StopSamplingCB) *AsyncStopSamplingCommand {
+	return &AsyncStopSamplingCommand{
+		cb: cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncStopSamplingCommand) Name() string {
+	return "HeapProfiler.stopSampling"
+}
+
+func (cmd *AsyncStopSamplingCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *StopSamplingCommand) Result() *StopSamplingResult {
+	return &cmd.result
+}
+
+func (cmd *StopSamplingCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncStopSamplingCommand) Done(data []byte, err error) {
+	var result StopSamplingResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj StopSamplingResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
@@ -396,63 +809,31 @@ type AddHeapSnapshotChunkEvent struct {
 	Chunk string `json:"chunk"`
 }
 
-type AddHeapSnapshotChunkEventSink struct {
-	events chan *AddHeapSnapshotChunkEvent
-}
-
-func NewAddHeapSnapshotChunkEventSink(bufSize int) *AddHeapSnapshotChunkEventSink {
-	return &AddHeapSnapshotChunkEventSink{
-		events: make(chan *AddHeapSnapshotChunkEvent, bufSize),
-	}
-}
-
-func (s *AddHeapSnapshotChunkEventSink) Name() string {
-	return "HeapProfiler.addHeapSnapshotChunk"
-}
-
-func (s *AddHeapSnapshotChunkEventSink) OnEvent(params []byte) {
-	evt := &AddHeapSnapshotChunkEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnAddHeapSnapshotChunk(conn *hc.Conn, cb func(evt *AddHeapSnapshotChunkEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &AddHeapSnapshotChunkEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("HeapProfiler.addHeapSnapshotChunk", sink)
 }
 
 type ResetProfilesEvent struct {
 }
 
-type ResetProfilesEventSink struct {
-	events chan *ResetProfilesEvent
-}
-
-func NewResetProfilesEventSink(bufSize int) *ResetProfilesEventSink {
-	return &ResetProfilesEventSink{
-		events: make(chan *ResetProfilesEvent, bufSize),
-	}
-}
-
-func (s *ResetProfilesEventSink) Name() string {
-	return "HeapProfiler.resetProfiles"
-}
-
-func (s *ResetProfilesEventSink) OnEvent(params []byte) {
-	evt := &ResetProfilesEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnResetProfiles(conn *hc.Conn, cb func(evt *ResetProfilesEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &ResetProfilesEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("HeapProfiler.resetProfiles", sink)
 }
 
 type ReportHeapSnapshotProgressEvent struct {
@@ -461,97 +842,51 @@ type ReportHeapSnapshotProgressEvent struct {
 	Finished bool `json:"finished"`
 }
 
-type ReportHeapSnapshotProgressEventSink struct {
-	events chan *ReportHeapSnapshotProgressEvent
-}
-
-func NewReportHeapSnapshotProgressEventSink(bufSize int) *ReportHeapSnapshotProgressEventSink {
-	return &ReportHeapSnapshotProgressEventSink{
-		events: make(chan *ReportHeapSnapshotProgressEvent, bufSize),
-	}
-}
-
-func (s *ReportHeapSnapshotProgressEventSink) Name() string {
-	return "HeapProfiler.reportHeapSnapshotProgress"
-}
-
-func (s *ReportHeapSnapshotProgressEventSink) OnEvent(params []byte) {
-	evt := &ReportHeapSnapshotProgressEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnReportHeapSnapshotProgress(conn *hc.Conn, cb func(evt *ReportHeapSnapshotProgressEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &ReportHeapSnapshotProgressEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
-}
-
-type LastSeenObjectIdEvent struct {
-	LastSeenObjectId int `json:"lastSeenObjectId"`
-	Timestamp        int `json:"timestamp"`
+	})
+	conn.AddEventSink("HeapProfiler.reportHeapSnapshotProgress", sink)
 }
 
 // If heap objects tracking has been started then backend regulary sends a current value for last seen object id and corresponding timestamp. If the were changes in the heap since last event then one or more heapStatsUpdate events will be sent before a new lastSeenObjectId event.
-type LastSeenObjectIdEventSink struct {
-	events chan *LastSeenObjectIdEvent
+
+type LastSeenObjectIdEvent struct {
+	LastSeenObjectId int     `json:"lastSeenObjectId"`
+	Timestamp        float64 `json:"timestamp"`
 }
 
-func NewLastSeenObjectIdEventSink(bufSize int) *LastSeenObjectIdEventSink {
-	return &LastSeenObjectIdEventSink{
-		events: make(chan *LastSeenObjectIdEvent, bufSize),
-	}
-}
-
-func (s *LastSeenObjectIdEventSink) Name() string {
-	return "HeapProfiler.lastSeenObjectId"
-}
-
-func (s *LastSeenObjectIdEventSink) OnEvent(params []byte) {
-	evt := &LastSeenObjectIdEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnLastSeenObjectId(conn *hc.Conn, cb func(evt *LastSeenObjectIdEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &LastSeenObjectIdEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("HeapProfiler.lastSeenObjectId", sink)
 }
+
+// If heap objects tracking has been started then backend may send update for one or more fragments
 
 type HeapStatsUpdateEvent struct {
 	StatsUpdate []int `json:"statsUpdate"` // An array of triplets. Each triplet describes a fragment. The first integer is the fragment index, the second integer is a total count of objects for the fragment, the third integer is a total size of the objects for the fragment.
 }
 
-// If heap objects tracking has been started then backend may send update for one or more fragments
-type HeapStatsUpdateEventSink struct {
-	events chan *HeapStatsUpdateEvent
-}
-
-func NewHeapStatsUpdateEventSink(bufSize int) *HeapStatsUpdateEventSink {
-	return &HeapStatsUpdateEventSink{
-		events: make(chan *HeapStatsUpdateEvent, bufSize),
-	}
-}
-
-func (s *HeapStatsUpdateEventSink) Name() string {
-	return "HeapProfiler.heapStatsUpdate"
-}
-
-func (s *HeapStatsUpdateEventSink) OnEvent(params []byte) {
-	evt := &HeapStatsUpdateEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnHeapStatsUpdate(conn *hc.Conn, cb func(evt *HeapStatsUpdateEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &HeapStatsUpdateEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("HeapProfiler.heapStatsUpdate", sink)
 }

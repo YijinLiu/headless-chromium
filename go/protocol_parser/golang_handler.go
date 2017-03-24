@@ -150,6 +150,13 @@ func (h *GolangProtocolHandler) writeGoFile(file string, buf *bytes.Buffer) {
 	}
 }
 
+func experimentalTag(experimental bool) string {
+	if experimental {
+		return "// @experimental"
+	}
+	return ""
+}
+
 var descReplacer = strings.NewReplacer("<code>", "", "</code>", "")
 
 func descriptionToGolangComment(desc string) string {
@@ -212,9 +219,14 @@ func (h *GolangProtocolHandler) simpleTypeToGolangType(domain string, st *Simple
 			logging.Fatalf("Illegal type '%v'.", st)
 		}
 		return h.refToGolangType(domain, st.Ref)
-	case "number", "integer":
+	case "number":
+		return "float64"
+	case "integer":
 		return "int"
-	case "any", "string":
+	case "any":
+		h.imports["encoding/json"] = ""
+		return "json.RawMessage"
+	case "string":
 		return "string"
 	case "boolean":
 		return "bool"
@@ -235,6 +247,9 @@ func (h *GolangProtocolHandler) unnamedTypeToGolangType(domain string, ut *Unnam
 func (h *GolangProtocolHandler) onType(domain string, tp *DomainType, buf *bytes.Buffer) {
 	name := h.typeName(domain, tp.Id)
 	fmt.Fprintf(buf, "%s\n", descriptionToGolangComment(tp.Description))
+	if tp.Experimental {
+		fmt.Fprintln(buf, experimentalTag(tp.Experimental))
+	}
 	switch tp.Type {
 	case "string":
 		fmt.Fprintf(buf, "type %s string\n", name)
@@ -247,8 +262,12 @@ func (h *GolangProtocolHandler) onType(domain string, tp *DomainType, buf *bytes
 	case "object":
 		fmt.Fprintf(buf, "type %s struct {\n", name)
 		for _, prop := range tp.Properties {
-			fmt.Fprintf(buf, "\t%s %s `json:\"%s\"` %s\n", toGolangType(prop.Name),
-				h.unnamedTypeToGolangType(domain, &prop.UnnamedType), prop.Name,
+			var omitEmpty string
+			if prop.Optional {
+				omitEmpty = ",omitempty"
+			}
+			fmt.Fprintf(buf, "\t%s %s `json:\"%s%s\"` %s\n", toGolangType(prop.Name),
+				h.unnamedTypeToGolangType(domain, &prop.UnnamedType), prop.Name, omitEmpty,
 				descriptionToGolangComment(prop.Description))
 		}
 		buf.WriteString("}\n\n")
@@ -259,15 +278,21 @@ func (h *GolangProtocolHandler) onType(domain string, tp *DomainType, buf *bytes
 }
 
 func (h *GolangProtocolHandler) onCommand(domain string, cmd *DomainCommand, buf *bytes.Buffer) {
+	h.imports["sync"] = ""
+	h.imports["github.com/yijinliu/headless-chromium/go"] = "hc"
 	name := h.typeName(domain, cmd.Name)
 
 	// Params.
-	var paramsField, paramsParam, paramsAssign, paramsValue string
+	var paramsField, paramsParam, paramsAssign, paramsValue, paramsName string
 	if len(cmd.Parameters) > 0 {
 		fmt.Fprintf(buf, "type %sParams struct {\n", name)
 		for _, param := range cmd.Parameters {
-			fmt.Fprintf(buf, "\t%s %s `json:\"%s\"` %s\n", toGolangType(param.Name),
-				h.unnamedTypeToGolangType(domain, &param.UnnamedType), param.Name,
+			var omitEmpty string
+			if param.Optional {
+				omitEmpty = ",omitempty"
+			}
+			fmt.Fprintf(buf, "\t%s %s `json:\"%s%s\"` %s\n", toGolangType(param.Name),
+				h.unnamedTypeToGolangType(domain, &param.UnnamedType), param.Name, omitEmpty,
 				descriptionToGolangComment(param.Description))
 		}
 		buf.WriteString("}\n\n")
@@ -275,12 +300,13 @@ func (h *GolangProtocolHandler) onCommand(domain string, cmd *DomainCommand, buf
 		paramsParam = fmt.Sprintf("params *%sParams, ", name)
 		paramsAssign = "params: params,\n"
 		paramsValue = "cmd.params"
+		paramsName = "params"
 	} else {
 		paramsValue = "nil"
 	}
 
 	// Result.
-	var resultParam string
+	var resultField, resultParam, resultValue string
 	if len(cmd.Returns) > 0 {
 		fmt.Fprintf(buf, "type %sResult struct {\n", name)
 		for _, ret := range cmd.Returns {
@@ -289,20 +315,22 @@ func (h *GolangProtocolHandler) onCommand(domain string, cmd *DomainCommand, buf
 				descriptionToGolangComment(ret.Description))
 		}
 		buf.WriteString("}\n")
+		resultField = fmt.Sprintf("result %sResult\n", name)
 		resultParam = fmt.Sprintf("result *%sResult, ", name)
+		resultValue = "&cmd.result, "
 	}
 
 	fmt.Fprintf(buf, `
-type %sCB func(%serr error)
-
+%s
 %s
 type %sCommand struct {
-	%scb %sCB
+	%s%swg sync.WaitGroup
+	err error
 }
 
-func New%sCommand(%scb %sCB) *%sCommand {
+func New%sCommand(%s) *%sCommand {
 	return &%sCommand{
-		%scb: cb,
+		%s
 	}
 }
 
@@ -313,36 +341,97 @@ func (cmd *%sCommand) Name() string {
 func (cmd *%sCommand) Params() interface{} {
 	return %s
 }
-`, name, resultParam, descriptionToGolangComment(cmd.Description), name, paramsField, name, name,
-		paramsParam, name, name, name, paramsAssign, name, domain, cmd.Name, name, paramsValue)
+
+func (cmd *%sCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func %s(%sconn *hc.Conn) (%serr error) {
+	cmd := New%sCommand(%s)
+	cmd.Run(conn)
+	return %scmd.err
+}
+
+type %sCB func(%serr error)
+
+%s
+%s
+type Async%sCommand struct {
+	%scb %sCB
+}
+
+func NewAsync%sCommand(%scb %sCB) *Async%sCommand {
+	return &Async%sCommand{
+		%scb: cb,
+	}
+}
+
+func (cmd *Async%sCommand) Name() string {
+	return "%s.%s"
+}
+
+func (cmd *Async%sCommand) Params() interface{} {
+	return %s
+}
+`,
+		descriptionToGolangComment(cmd.Description), experimentalTag(cmd.Experimental), // comment
+		name, paramsField, resultField, // struct
+		name, paramsParam, name, name, paramsAssign, // constructor
+		name, domain, cmd.Name, // method Name
+		name, paramsValue, // method Params
+		name,                                                          // method Run
+		name, paramsParam, resultParam, name, paramsName, resultValue, // func Run
+		name, resultParam, // CB
+		descriptionToGolangComment(cmd.Description), experimentalTag(cmd.Experimental), // comment
+		name, paramsField, name, // struct
+		name, paramsParam, name, name, name, paramsAssign, // constructor
+		name, domain, cmd.Name, // method Name
+		name, paramsValue) // method Params
 
 	if len(cmd.Returns) > 0 {
 		fmt.Fprintf(buf, `
-func (cmd *%sCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *%sCommand) Result() *%sResult {
+	return &cmd.result
+}
+
+func (cmd *%sCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
 	}
-	if err != nil {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *Async%sCommand) Done(data []byte, err error) {
+	var result %sResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj %sResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
-`, name, name)
+`, name, name, name, name, name)
 		h.imports["encoding/json"] = ""
+		h.imports["github.com/yijinliu/algo-lib/go/src/logging"] = ""
 	} else {
 		fmt.Fprintf(buf, `
-func (cmd *%sCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
-	}
+func (cmd *%sCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
 }
-`, name)
+
+func (cmd *Async%sCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
+`, name, name)
 	}
 }
 
@@ -350,7 +439,8 @@ func (h *GolangProtocolHandler) onEvent(domain string, evt *DomainEvent, buf *by
 	name := h.typeName(domain, evt.Name)
 
 	// Params.
-	fmt.Fprintf(buf, "type %sEvent struct {\n", name)
+	fmt.Fprintf(buf, "%s\n%s\ntype %sEvent struct {\n", descriptionToGolangComment(evt.Description),
+		experimentalTag(evt.Experimental), name)
 	for _, param := range evt.Parameters {
 		fmt.Fprintf(buf, "\t%s %s `json:\"%s\"` %s\n", toGolangType(param.Name),
 			h.unnamedTypeToGolangType(domain, &param.UnnamedType), param.Name,
@@ -359,34 +449,16 @@ func (h *GolangProtocolHandler) onEvent(domain string, evt *DomainEvent, buf *by
 	buf.WriteString("}\n\n")
 
 	fmt.Fprintf(buf, `
-%s
-type %sEventSink struct {
-	events chan *%sEvent
-}
-
-func New%sEventSink(bufSize int) *%sEventSink {
-	return &%sEventSink{
-		events: make(chan *%sEvent, bufSize),
-	}
-}
-
-func (s *%sEventSink) Name() string {
-	return "%s.%s"
-}
-
-func (s *%sEventSink) OnEvent(params []byte) {
-	evt := &%sEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%%v).", evt)
+func On%s(conn *hc.Conn, cb func(evt *%sEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &%sEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("%s.%s", sink)
 }
-`, descriptionToGolangComment(evt.Description), name, name, name, name, name, name, name,
-		domain, evt.Name, name, name)
+`, name, name, name, domain, evt.Name)
 }

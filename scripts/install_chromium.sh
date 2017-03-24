@@ -1,14 +1,34 @@
 #!/bin/bash
 
-# This script installs headless chromium headers and libraries in your system.
-# NOTE: Only tested on Ubuntu 16.04 / x86_64.
+# This script installs headless Chromium headers and libraries in your system.
+# Tested on Ubuntu 16.04 / x86_64.
+# NOTE: It takes very long time to download and compile the Chromium source code. Be patient.
+#
+# Usage:
+#   1. ./install_chromium.sh
+#      Download source code to ./chromium, compile and install to /usr/local/headless_chromium
+#   2. ./install_chromium.sh --install_dir=$DIR
+#      Change the installation dir.
+#   3. ./install_chromium.sh --debug
+#      Compile and install debug version Chromium.
+#   4. ./install_chromium.sh --upgrade_to=$VERSION
+#      Upgrade Chromium to the specified version.
+#      NOTE: Chromium source code is updated very frequently. There is no guarantee that this works.
+#   5. ./install_chromium.sh --version=$VERSION.
+#      Install the specified version of Chromium. By default, we install version "57.0.2987.99".
+#      NOTE: Chromium source code is updated very frequently. There is no guarantee that this works.
+#
+#   To find the available Chromium versions:
+#      cd chromium/src
+#      git fetch --tags
+#      git tag -l
 
 RED='\033[0;31m'
 NC='\033[0m'
 BASEDIR=$(readlink -f $(dirname $0))
 
 # Parse command line.
-OPTS=`getopt -n "install_chromium.sh" -o dt:u: -l debug,install_dir:,upgrade_to: -- "$@"`
+OPTS=`getopt -n "install_chromium.sh" -o dt:u:v: -l debug,install_dir:,upgrade_to:,version: -- "$@"`
 rc=$?
 if [ $rc != 0 ] ; then
     echo "install_chromium.sh [--debug]"
@@ -19,11 +39,13 @@ eval set -- "$OPTS"
 debug=
 install_dir=/usr/local/headless_chromium
 upgrade_to=
+version="57.0.2987.99"
 while true; do
     case "$1" in
         -d | --debug )           debug=1 ; shift ;;
         -t | --install_dir)      install_dir="$2"; shift 2 ;;
         -u | --upgrade_to)       upgrade_to="$2"; shift 2 ;;
+        -v | --version)          version="$2"; shift 2 ;;
         -- )                     shift; break ;;
         * )                      echo -e "${RED}Invalid option: $1${NC}" >&2 ; exit 1 ;;
     esac
@@ -87,7 +109,7 @@ install_headless_chromium() {
         git fetch --tags
         # To list all tags:
         #   git tag -l
-        sync_to_version "55.0.2883.91"
+        sync_to_version "${version}"
         rc=$?
         if [ $rc != 0 ]; then
             return 1
@@ -142,6 +164,7 @@ icu_use_data_file = false\n"
     fi
 
     # Install binaries.
+    sudo rm -rf ${install_dir} &&
     sudo mkdir -p ${install_dir}/bin &&
     sudo install out/Default/headless_shell out/Default/headless_lib.pak out/Default/libosmesa.so \
         ${install_dir}/bin/
@@ -166,9 +189,9 @@ icu_use_data_file = false\n"
 
     # Install headers.
     folders="base base/containers base/debug base/files base/memory base/message_loop \
-             base/numerics base/profiler base/strings base/synchronization base/task_scheduler \
-             base/threading base/time build content/common content/public/common \
-             headless/public headless/public/internal headless/public/util \
+             base/numerics base/process/ base/profiler base/strings base/synchronization \
+             base/task_scheduler base/threading base/time build content/common \
+             content/public/common headless/public headless/public/internal headless/public/util \
              mojo/public/c/system mojo/public/cpp/bindings mojo/public/cpp/bindings/lib \
              mojo/public/cpp/system net/base net/url_request testing/gtest/include/gtest \
              ui/base ui/base/touch ui/gfx ui/gfx/geometry url url/third_party/mozilla"
@@ -178,18 +201,22 @@ icu_use_data_file = false\n"
         sudo cp -f ${folder}/*.h ${install_dir}/include/${folder}/
         rc=$?
         if [ $rc != 0 ]; then
-            echo -e "${RED}Failed to install ${folder}${NC}"
+            echo -e "${RED}Failed to install ${folder}.${NC}"
             return 1
         fi
     done
-    sudo mkdir -p ${install_dir}/include/headless/public/domains &&
-    sudo cp -f out/Default/gen/headless/public/domains/*.h \
-        ${install_dir}/include/headless/public/domains/
-    rc=$?
-    if [ $rc != 0 ]; then
-        echo -e "${RED}Failed to install headless/public/domains${NC}"
-        return 1
-    fi
+    folders="headless/public/domains headless/public/devtools/domains \
+             headless/public/devtools/internal"
+    for folder in ${folders}
+    do
+        sudo mkdir -p ${install_dir}/include/${folder} &&
+        sudo cp -f out/Default/gen/${folder}/*.h ${install_dir}/include/${folder}/
+        rc=$?
+        if [ $rc != 0 ]; then
+            echo -e "${RED}Failed to install ${folder}.${NC}"
+            return 1
+        fi
+    done
 
     # Install protocols.
     sudo mkdir -p ${install_dir}/protocol &&

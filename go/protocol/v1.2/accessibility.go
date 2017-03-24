@@ -2,6 +2,9 @@ package protocol
 
 import (
 	"encoding/json"
+	"github.com/yijinliu/algo-lib/go/src/logging"
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
 )
 
 // Unique accessibility node identifier.
@@ -52,21 +55,21 @@ const AXValueNativeSourceTypeOther AXValueNativeSourceType = "other"
 
 // A single source for a computed AX property.
 type AXValueSource struct {
-	Type              AXValueSourceType       `json:"type"`              // What type of source this is.
-	Value             *AXValue                `json:"value"`             // The value of this property source.
-	Attribute         string                  `json:"attribute"`         // The name of the relevant attribute, if any.
-	AttributeValue    *AXValue                `json:"attributeValue"`    // The value of the relevant attribute, if any.
-	Superseded        bool                    `json:"superseded"`        // Whether this source is superseded by a higher priority source.
-	NativeSource      AXValueNativeSourceType `json:"nativeSource"`      // The native markup source for this value, e.g. a <label> element.
-	NativeSourceValue *AXValue                `json:"nativeSourceValue"` // The value, such as a node or node list, of the native source.
-	Invalid           bool                    `json:"invalid"`           // Whether the value for this property is invalid.
-	InvalidReason     string                  `json:"invalidReason"`     // Reason for the value being invalid, if it is.
+	Type              AXValueSourceType       `json:"type"`                        // What type of source this is.
+	Value             *AXValue                `json:"value,omitempty"`             // The value of this property source.
+	Attribute         string                  `json:"attribute,omitempty"`         // The name of the relevant attribute, if any.
+	AttributeValue    *AXValue                `json:"attributeValue,omitempty"`    // The value of the relevant attribute, if any.
+	Superseded        bool                    `json:"superseded,omitempty"`        // Whether this source is superseded by a higher priority source.
+	NativeSource      AXValueNativeSourceType `json:"nativeSource,omitempty"`      // The native markup source for this value, e.g. a <label> element.
+	NativeSourceValue *AXValue                `json:"nativeSourceValue,omitempty"` // The value, such as a node or node list, of the native source.
+	Invalid           bool                    `json:"invalid,omitempty"`           // Whether the value for this property is invalid.
+	InvalidReason     string                  `json:"invalidReason,omitempty"`     // Reason for the value being invalid, if it is.
 }
 
 type AXRelatedNode struct {
-	BackendNodeId *BackendNodeId `json:"backendNodeId"` // The BackendNodeId of the related node.
-	Idref         string         `json:"idref"`         // The IDRef value provided, if any.
-	Text          string         `json:"text"`          // The text alternative of this node in the current context.
+	BackendDOMNodeId *BackendNodeId `json:"backendDOMNodeId"` // The BackendNodeId of the related DOM node.
+	Idref            string         `json:"idref,omitempty"`  // The IDRef value provided, if any.
+	Text             string         `json:"text,omitempty"`   // The text alternative of this node in the current context.
 }
 
 type AXProperty struct {
@@ -76,10 +79,10 @@ type AXProperty struct {
 
 // A single computed AX property.
 type AXValue struct {
-	Type         AXValueType      `json:"type"`         // The type of this value.
-	Value        string           `json:"value"`        // The computed value of this property.
-	RelatedNodes []*AXRelatedNode `json:"relatedNodes"` // One or more related nodes, if applicable.
-	Sources      []*AXValueSource `json:"sources"`      // The sources which contributed to the computation of this property.
+	Type         AXValueType      `json:"type"`                   // The type of this value.
+	Value        json.RawMessage  `json:"value,omitempty"`        // The computed value of this property.
+	RelatedNodes []*AXRelatedNode `json:"relatedNodes,omitempty"` // One or more related nodes, if applicable.
+	Sources      []*AXValueSource `json:"sources,omitempty"`      // The sources which contributed to the computation of this property.
 }
 
 // States which apply to every AX node.
@@ -134,60 +137,109 @@ const AXRelationshipAttributesOwns AXRelationshipAttributes = "owns"
 
 // A node in the accessibility tree.
 type AXNode struct {
-	NodeId         AXNodeId      `json:"nodeId"`         // Unique identifier for this node.
-	Ignored        bool          `json:"ignored"`        // Whether this node is ignored for accessibility
-	IgnoredReasons []*AXProperty `json:"ignoredReasons"` // Collection of reasons why this node is hidden.
-	Role           *AXValue      `json:"role"`           // This Node's role, whether explicit or implicit.
-	Name           *AXValue      `json:"name"`           // The accessible name for this Node.
-	Description    *AXValue      `json:"description"`    // The accessible description for this Node.
-	Value          *AXValue      `json:"value"`          // The value for this Node.
-	Properties     []*AXProperty `json:"properties"`     // All other properties
+	NodeId           AXNodeId       `json:"nodeId"`                     // Unique identifier for this node.
+	Ignored          bool           `json:"ignored"`                    // Whether this node is ignored for accessibility
+	IgnoredReasons   []*AXProperty  `json:"ignoredReasons,omitempty"`   // Collection of reasons why this node is hidden.
+	Role             *AXValue       `json:"role,omitempty"`             // This Node's role, whether explicit or implicit.
+	Name             *AXValue       `json:"name,omitempty"`             // The accessible name for this Node.
+	Description      *AXValue       `json:"description,omitempty"`      // The accessible description for this Node.
+	Value            *AXValue       `json:"value,omitempty"`            // The value for this Node.
+	Properties       []*AXProperty  `json:"properties,omitempty"`       // All other properties
+	ChildIds         []AXNodeId     `json:"childIds,omitempty"`         // IDs for each of this node's child nodes.
+	BackendDOMNodeId *BackendNodeId `json:"backendDOMNodeId,omitempty"` // The backend ID for the associated DOM node, if any.
 }
 
-type GetAXNodeChainParams struct {
-	NodeId         *NodeId `json:"nodeId"`         // ID of node to get accessibility node for.
-	FetchAncestors bool    `json:"fetchAncestors"` // Whether to also push down a partial tree (parent chain).
+type GetPartialAXTreeParams struct {
+	NodeId         *NodeId `json:"nodeId"`                   // ID of node to get the partial accessibility tree for.
+	FetchRelatives bool    `json:"fetchRelatives,omitempty"` // Whether to fetch this nodes ancestors, siblings and children. Defaults to true.
 }
 
-type GetAXNodeChainResult struct {
-	Nodes []*AXNode `json:"nodes"` // The Accessibility.AXNode for this DOM node, if it exists, plus ancestors if requested.
+type GetPartialAXTreeResult struct {
+	Nodes []*AXNode `json:"nodes"` // The Accessibility.AXNode for this DOM node, if it exists, plus its ancestors, siblings and children, if requested.
 }
 
-type GetAXNodeChainCB func(result *GetAXNodeChainResult, err error)
-
-// Fetches the accessibility node for this DOM node, if it exists.
-type GetAXNodeChainCommand struct {
-	params *GetAXNodeChainParams
-	cb     GetAXNodeChainCB
+// Fetches the accessibility node and partial accessibility tree for this DOM node, if it exists.
+// @experimental
+type GetPartialAXTreeCommand struct {
+	params *GetPartialAXTreeParams
+	result GetPartialAXTreeResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetAXNodeChainCommand(params *GetAXNodeChainParams, cb GetAXNodeChainCB) *GetAXNodeChainCommand {
-	return &GetAXNodeChainCommand{
+func NewGetPartialAXTreeCommand(params *GetPartialAXTreeParams) *GetPartialAXTreeCommand {
+	return &GetPartialAXTreeCommand{
+		params: params,
+	}
+}
+
+func (cmd *GetPartialAXTreeCommand) Name() string {
+	return "Accessibility.getPartialAXTree"
+}
+
+func (cmd *GetPartialAXTreeCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *GetPartialAXTreeCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func GetPartialAXTree(params *GetPartialAXTreeParams, conn *hc.Conn) (result *GetPartialAXTreeResult, err error) {
+	cmd := NewGetPartialAXTreeCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type GetPartialAXTreeCB func(result *GetPartialAXTreeResult, err error)
+
+// Fetches the accessibility node and partial accessibility tree for this DOM node, if it exists.
+// @experimental
+type AsyncGetPartialAXTreeCommand struct {
+	params *GetPartialAXTreeParams
+	cb     GetPartialAXTreeCB
+}
+
+func NewAsyncGetPartialAXTreeCommand(params *GetPartialAXTreeParams, cb GetPartialAXTreeCB) *AsyncGetPartialAXTreeCommand {
+	return &AsyncGetPartialAXTreeCommand{
 		params: params,
 		cb:     cb,
 	}
 }
 
-func (cmd *GetAXNodeChainCommand) Name() string {
-	return "Accessibility.getAXNodeChain"
+func (cmd *AsyncGetPartialAXTreeCommand) Name() string {
+	return "Accessibility.getPartialAXTree"
 }
 
-func (cmd *GetAXNodeChainCommand) Params() interface{} {
+func (cmd *AsyncGetPartialAXTreeCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *GetAXNodeChainCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *GetPartialAXTreeCommand) Result() *GetPartialAXTreeResult {
+	return &cmd.result
+}
+
+func (cmd *GetPartialAXTreeCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
 	}
-	if err != nil {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetPartialAXTreeCommand) Done(data []byte, err error) {
+	var result GetPartialAXTreeResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj GetAXNodeChainResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }

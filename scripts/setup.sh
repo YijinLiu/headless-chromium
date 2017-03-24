@@ -1,6 +1,14 @@
 #!/bin/bash
 
-# This script sets up the environment to use headless-chromium.
+# This script sets up the environment to run headless-chromium using Golang.
+#
+# Usage:
+#   1. ./setup.sh
+#      Install hc_server.
+#   2. ./setup.sh --install_dir=$DIR
+#      Change the installation dir.
+#   3. ./setup.sh --protocol_langs=golang
+#      Generate library for the specified language. Only golang is supported now.
 
 RED='\033[0;31m'
 NC='\033[0m'

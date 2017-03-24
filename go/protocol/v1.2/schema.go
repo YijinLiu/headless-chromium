@@ -2,6 +2,9 @@ package protocol
 
 import (
 	"encoding/json"
+	"github.com/yijinliu/algo-lib/go/src/logging"
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
 )
 
 // Description of the protocol domain.
@@ -14,17 +17,16 @@ type GetDomainsResult struct {
 	Domains []*Domain `json:"domains"` // List of supported domains.
 }
 
-type GetDomainsCB func(result *GetDomainsResult, err error)
-
 // Returns supported domains.
+
 type GetDomainsCommand struct {
-	cb GetDomainsCB
+	result GetDomainsResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetDomainsCommand(cb GetDomainsCB) *GetDomainsCommand {
-	return &GetDomainsCommand{
-		cb: cb,
-	}
+func NewGetDomainsCommand() *GetDomainsCommand {
+	return &GetDomainsCommand{}
 }
 
 func (cmd *GetDomainsCommand) Name() string {
@@ -35,18 +37,63 @@ func (cmd *GetDomainsCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *GetDomainsCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *GetDomainsCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func GetDomains(conn *hc.Conn) (result *GetDomainsResult, err error) {
+	cmd := NewGetDomainsCommand()
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type GetDomainsCB func(result *GetDomainsResult, err error)
+
+// Returns supported domains.
+
+type AsyncGetDomainsCommand struct {
+	cb GetDomainsCB
+}
+
+func NewAsyncGetDomainsCommand(cb GetDomainsCB) *AsyncGetDomainsCommand {
+	return &AsyncGetDomainsCommand{
+		cb: cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncGetDomainsCommand) Name() string {
+	return "Schema.getDomains"
+}
+
+func (cmd *AsyncGetDomainsCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *GetDomainsCommand) Result() *GetDomainsResult {
+	return &cmd.result
+}
+
+func (cmd *GetDomainsCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetDomainsCommand) Done(data []byte, err error) {
+	var result GetDomainsResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj GetDomainsResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }

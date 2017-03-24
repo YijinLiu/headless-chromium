@@ -3,28 +3,30 @@ package protocol
 import (
 	"encoding/json"
 	"github.com/yijinliu/algo-lib/go/src/logging"
+	hc "github.com/yijinliu/headless-chromium/go"
+	"sync"
 )
 
 // DOM Storage identifier.
+// @experimental
 type StorageId struct {
 	SecurityOrigin string `json:"securityOrigin"` // Security origin for the storage.
 	IsLocalStorage bool   `json:"isLocalStorage"` // Whether the storage is local storage (not session storage).
 }
 
 // DOM Storage item.
+// @experimental
 type Item []string
 
-type DOMStorageEnableCB func(err error)
-
 // Enables storage tracking, storage events will now be delivered to the client.
+
 type DOMStorageEnableCommand struct {
-	cb DOMStorageEnableCB
+	wg  sync.WaitGroup
+	err error
 }
 
-func NewDOMStorageEnableCommand(cb DOMStorageEnableCB) *DOMStorageEnableCommand {
-	return &DOMStorageEnableCommand{
-		cb: cb,
-	}
+func NewDOMStorageEnableCommand() *DOMStorageEnableCommand {
+	return &DOMStorageEnableCommand{}
 }
 
 func (cmd *DOMStorageEnableCommand) Name() string {
@@ -35,23 +37,59 @@ func (cmd *DOMStorageEnableCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *DOMStorageEnableCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
-	}
+func (cmd *DOMStorageEnableCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
 }
 
-type DOMStorageDisableCB func(err error)
-
-// Disables storage tracking, prevents storage events from being sent to the client.
-type DOMStorageDisableCommand struct {
-	cb DOMStorageDisableCB
+func DOMStorageEnable(conn *hc.Conn) (err error) {
+	cmd := NewDOMStorageEnableCommand()
+	cmd.Run(conn)
+	return cmd.err
 }
 
-func NewDOMStorageDisableCommand(cb DOMStorageDisableCB) *DOMStorageDisableCommand {
-	return &DOMStorageDisableCommand{
+type DOMStorageEnableCB func(err error)
+
+// Enables storage tracking, storage events will now be delivered to the client.
+
+type AsyncDOMStorageEnableCommand struct {
+	cb DOMStorageEnableCB
+}
+
+func NewAsyncDOMStorageEnableCommand(cb DOMStorageEnableCB) *AsyncDOMStorageEnableCommand {
+	return &AsyncDOMStorageEnableCommand{
 		cb: cb,
 	}
+}
+
+func (cmd *AsyncDOMStorageEnableCommand) Name() string {
+	return "DOMStorage.enable"
+}
+
+func (cmd *AsyncDOMStorageEnableCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *DOMStorageEnableCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncDOMStorageEnableCommand) Done(data []byte, err error) {
+	cmd.cb(err)
+}
+
+// Disables storage tracking, prevents storage events from being sent to the client.
+
+type DOMStorageDisableCommand struct {
+	wg  sync.WaitGroup
+	err error
+}
+
+func NewDOMStorageDisableCommand() *DOMStorageDisableCommand {
+	return &DOMStorageDisableCommand{}
 }
 
 func (cmd *DOMStorageDisableCommand) Name() string {
@@ -62,10 +100,48 @@ func (cmd *DOMStorageDisableCommand) Params() interface{} {
 	return nil
 }
 
-func (cmd *DOMStorageDisableCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *DOMStorageDisableCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func DOMStorageDisable(conn *hc.Conn) (err error) {
+	cmd := NewDOMStorageDisableCommand()
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type DOMStorageDisableCB func(err error)
+
+// Disables storage tracking, prevents storage events from being sent to the client.
+
+type AsyncDOMStorageDisableCommand struct {
+	cb DOMStorageDisableCB
+}
+
+func NewAsyncDOMStorageDisableCommand(cb DOMStorageDisableCB) *AsyncDOMStorageDisableCommand {
+	return &AsyncDOMStorageDisableCommand{
+		cb: cb,
 	}
+}
+
+func (cmd *AsyncDOMStorageDisableCommand) Name() string {
+	return "DOMStorage.disable"
+}
+
+func (cmd *AsyncDOMStorageDisableCommand) Params() interface{} {
+	return nil
+}
+
+func (cmd *DOMStorageDisableCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncDOMStorageDisableCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type GetDOMStorageItemsParams struct {
@@ -76,17 +152,16 @@ type GetDOMStorageItemsResult struct {
 	Entries []Item `json:"entries"`
 }
 
-type GetDOMStorageItemsCB func(result *GetDOMStorageItemsResult, err error)
-
 type GetDOMStorageItemsCommand struct {
 	params *GetDOMStorageItemsParams
-	cb     GetDOMStorageItemsCB
+	result GetDOMStorageItemsResult
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewGetDOMStorageItemsCommand(params *GetDOMStorageItemsParams, cb GetDOMStorageItemsCB) *GetDOMStorageItemsCommand {
+func NewGetDOMStorageItemsCommand(params *GetDOMStorageItemsParams) *GetDOMStorageItemsCommand {
 	return &GetDOMStorageItemsCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -98,19 +173,64 @@ func (cmd *GetDOMStorageItemsCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *GetDOMStorageItemsCommand) Done(result []byte, err error) {
-	if cmd.cb == nil {
-		return
+func (cmd *GetDOMStorageItemsCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func GetDOMStorageItems(params *GetDOMStorageItemsParams, conn *hc.Conn) (result *GetDOMStorageItemsResult, err error) {
+	cmd := NewGetDOMStorageItemsCommand(params)
+	cmd.Run(conn)
+	return &cmd.result, cmd.err
+}
+
+type GetDOMStorageItemsCB func(result *GetDOMStorageItemsResult, err error)
+
+type AsyncGetDOMStorageItemsCommand struct {
+	params *GetDOMStorageItemsParams
+	cb     GetDOMStorageItemsCB
+}
+
+func NewAsyncGetDOMStorageItemsCommand(params *GetDOMStorageItemsParams, cb GetDOMStorageItemsCB) *AsyncGetDOMStorageItemsCommand {
+	return &AsyncGetDOMStorageItemsCommand{
+		params: params,
+		cb:     cb,
 	}
-	if err != nil {
+}
+
+func (cmd *AsyncGetDOMStorageItemsCommand) Name() string {
+	return "DOMStorage.getDOMStorageItems"
+}
+
+func (cmd *AsyncGetDOMStorageItemsCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *GetDOMStorageItemsCommand) Result() *GetDOMStorageItemsResult {
+	return &cmd.result
+}
+
+func (cmd *GetDOMStorageItemsCommand) Done(data []byte, err error) {
+	if err == nil {
+		err = json.Unmarshal(data, &cmd.result)
+	}
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncGetDOMStorageItemsCommand) Done(data []byte, err error) {
+	var result GetDOMStorageItemsResult
+	if err == nil {
+		err = json.Unmarshal(data, &result)
+	}
+	if cmd.cb == nil {
+		logging.Vlog(-1, err)
+	} else if err != nil {
 		cmd.cb(nil, err)
 	} else {
-		var rj GetDOMStorageItemsResult
-		if err := json.Unmarshal(result, &rj); err != nil {
-			cmd.cb(nil, err)
-		} else {
-			cmd.cb(&rj, nil)
-		}
+		cmd.cb(&result, nil)
 	}
 }
 
@@ -120,17 +240,15 @@ type SetDOMStorageItemParams struct {
 	Value     string     `json:"value"`
 }
 
-type SetDOMStorageItemCB func(err error)
-
 type SetDOMStorageItemCommand struct {
 	params *SetDOMStorageItemParams
-	cb     SetDOMStorageItemCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewSetDOMStorageItemCommand(params *SetDOMStorageItemParams, cb SetDOMStorageItemCB) *SetDOMStorageItemCommand {
+func NewSetDOMStorageItemCommand(params *SetDOMStorageItemParams) *SetDOMStorageItemCommand {
 	return &SetDOMStorageItemCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -142,10 +260,48 @@ func (cmd *SetDOMStorageItemCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *SetDOMStorageItemCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *SetDOMStorageItemCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func SetDOMStorageItem(params *SetDOMStorageItemParams, conn *hc.Conn) (err error) {
+	cmd := NewSetDOMStorageItemCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type SetDOMStorageItemCB func(err error)
+
+type AsyncSetDOMStorageItemCommand struct {
+	params *SetDOMStorageItemParams
+	cb     SetDOMStorageItemCB
+}
+
+func NewAsyncSetDOMStorageItemCommand(params *SetDOMStorageItemParams, cb SetDOMStorageItemCB) *AsyncSetDOMStorageItemCommand {
+	return &AsyncSetDOMStorageItemCommand{
+		params: params,
+		cb:     cb,
 	}
+}
+
+func (cmd *AsyncSetDOMStorageItemCommand) Name() string {
+	return "DOMStorage.setDOMStorageItem"
+}
+
+func (cmd *AsyncSetDOMStorageItemCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *SetDOMStorageItemCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncSetDOMStorageItemCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type RemoveDOMStorageItemParams struct {
@@ -153,17 +309,15 @@ type RemoveDOMStorageItemParams struct {
 	Key       string     `json:"key"`
 }
 
-type RemoveDOMStorageItemCB func(err error)
-
 type RemoveDOMStorageItemCommand struct {
 	params *RemoveDOMStorageItemParams
-	cb     RemoveDOMStorageItemCB
+	wg     sync.WaitGroup
+	err    error
 }
 
-func NewRemoveDOMStorageItemCommand(params *RemoveDOMStorageItemParams, cb RemoveDOMStorageItemCB) *RemoveDOMStorageItemCommand {
+func NewRemoveDOMStorageItemCommand(params *RemoveDOMStorageItemParams) *RemoveDOMStorageItemCommand {
 	return &RemoveDOMStorageItemCommand{
 		params: params,
-		cb:     cb,
 	}
 }
 
@@ -175,42 +329,64 @@ func (cmd *RemoveDOMStorageItemCommand) Params() interface{} {
 	return cmd.params
 }
 
-func (cmd *RemoveDOMStorageItemCommand) Done(result []byte, err error) {
-	if cmd.cb != nil {
-		cmd.cb(err)
+func (cmd *RemoveDOMStorageItemCommand) Run(conn *hc.Conn) error {
+	cmd.wg.Add(1)
+	conn.SendCommand(cmd)
+	cmd.wg.Wait()
+	return cmd.err
+}
+
+func RemoveDOMStorageItem(params *RemoveDOMStorageItemParams, conn *hc.Conn) (err error) {
+	cmd := NewRemoveDOMStorageItemCommand(params)
+	cmd.Run(conn)
+	return cmd.err
+}
+
+type RemoveDOMStorageItemCB func(err error)
+
+type AsyncRemoveDOMStorageItemCommand struct {
+	params *RemoveDOMStorageItemParams
+	cb     RemoveDOMStorageItemCB
+}
+
+func NewAsyncRemoveDOMStorageItemCommand(params *RemoveDOMStorageItemParams, cb RemoveDOMStorageItemCB) *AsyncRemoveDOMStorageItemCommand {
+	return &AsyncRemoveDOMStorageItemCommand{
+		params: params,
+		cb:     cb,
 	}
+}
+
+func (cmd *AsyncRemoveDOMStorageItemCommand) Name() string {
+	return "DOMStorage.removeDOMStorageItem"
+}
+
+func (cmd *AsyncRemoveDOMStorageItemCommand) Params() interface{} {
+	return cmd.params
+}
+
+func (cmd *RemoveDOMStorageItemCommand) Done(data []byte, err error) {
+	cmd.err = err
+	cmd.wg.Done()
+}
+
+func (cmd *AsyncRemoveDOMStorageItemCommand) Done(data []byte, err error) {
+	cmd.cb(err)
 }
 
 type DomStorageItemsClearedEvent struct {
 	StorageId *StorageId `json:"storageId"`
 }
 
-type DomStorageItemsClearedEventSink struct {
-	events chan *DomStorageItemsClearedEvent
-}
-
-func NewDomStorageItemsClearedEventSink(bufSize int) *DomStorageItemsClearedEventSink {
-	return &DomStorageItemsClearedEventSink{
-		events: make(chan *DomStorageItemsClearedEvent, bufSize),
-	}
-}
-
-func (s *DomStorageItemsClearedEventSink) Name() string {
-	return "DOMStorage.domStorageItemsCleared"
-}
-
-func (s *DomStorageItemsClearedEventSink) OnEvent(params []byte) {
-	evt := &DomStorageItemsClearedEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnDomStorageItemsCleared(conn *hc.Conn, cb func(evt *DomStorageItemsClearedEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &DomStorageItemsClearedEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("DOMStorage.domStorageItemsCleared", sink)
 }
 
 type DomStorageItemRemovedEvent struct {
@@ -218,32 +394,16 @@ type DomStorageItemRemovedEvent struct {
 	Key       string     `json:"key"`
 }
 
-type DomStorageItemRemovedEventSink struct {
-	events chan *DomStorageItemRemovedEvent
-}
-
-func NewDomStorageItemRemovedEventSink(bufSize int) *DomStorageItemRemovedEventSink {
-	return &DomStorageItemRemovedEventSink{
-		events: make(chan *DomStorageItemRemovedEvent, bufSize),
-	}
-}
-
-func (s *DomStorageItemRemovedEventSink) Name() string {
-	return "DOMStorage.domStorageItemRemoved"
-}
-
-func (s *DomStorageItemRemovedEventSink) OnEvent(params []byte) {
-	evt := &DomStorageItemRemovedEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnDomStorageItemRemoved(conn *hc.Conn, cb func(evt *DomStorageItemRemovedEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &DomStorageItemRemovedEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("DOMStorage.domStorageItemRemoved", sink)
 }
 
 type DomStorageItemAddedEvent struct {
@@ -252,32 +412,16 @@ type DomStorageItemAddedEvent struct {
 	NewValue  string     `json:"newValue"`
 }
 
-type DomStorageItemAddedEventSink struct {
-	events chan *DomStorageItemAddedEvent
-}
-
-func NewDomStorageItemAddedEventSink(bufSize int) *DomStorageItemAddedEventSink {
-	return &DomStorageItemAddedEventSink{
-		events: make(chan *DomStorageItemAddedEvent, bufSize),
-	}
-}
-
-func (s *DomStorageItemAddedEventSink) Name() string {
-	return "DOMStorage.domStorageItemAdded"
-}
-
-func (s *DomStorageItemAddedEventSink) OnEvent(params []byte) {
-	evt := &DomStorageItemAddedEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnDomStorageItemAdded(conn *hc.Conn, cb func(evt *DomStorageItemAddedEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &DomStorageItemAddedEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("DOMStorage.domStorageItemAdded", sink)
 }
 
 type DomStorageItemUpdatedEvent struct {
@@ -287,30 +431,14 @@ type DomStorageItemUpdatedEvent struct {
 	NewValue  string     `json:"newValue"`
 }
 
-type DomStorageItemUpdatedEventSink struct {
-	events chan *DomStorageItemUpdatedEvent
-}
-
-func NewDomStorageItemUpdatedEventSink(bufSize int) *DomStorageItemUpdatedEventSink {
-	return &DomStorageItemUpdatedEventSink{
-		events: make(chan *DomStorageItemUpdatedEvent, bufSize),
-	}
-}
-
-func (s *DomStorageItemUpdatedEventSink) Name() string {
-	return "DOMStorage.domStorageItemUpdated"
-}
-
-func (s *DomStorageItemUpdatedEventSink) OnEvent(params []byte) {
-	evt := &DomStorageItemUpdatedEvent{}
-	if err := json.Unmarshal(params, evt); err != nil {
-		logging.Vlog(-1, err)
-	} else {
-		select {
-		case s.events <- evt:
-			// Do nothing.
-		default:
-			logging.Vlogf(0, "Dropped one event(%v).", evt)
+func OnDomStorageItemUpdated(conn *hc.Conn, cb func(evt *DomStorageItemUpdatedEvent)) {
+	sink := hc.FuncToEventSink(func(name string, params []byte) {
+		evt := &DomStorageItemUpdatedEvent{}
+		if err := json.Unmarshal(params, evt); err != nil {
+			logging.Vlog(-1, err)
+		} else {
+			cb(evt)
 		}
-	}
+	})
+	conn.AddEventSink("DOMStorage.domStorageItemUpdated", sink)
 }
