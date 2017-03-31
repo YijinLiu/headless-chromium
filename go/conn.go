@@ -167,7 +167,8 @@ func (c *Conn) readLoop() {
 	for {
 		mj := &MessageJson{}
 		if err := c.conn.ReadJSON(mj); err != nil {
-			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
+			if err == io.EOF || websocket.IsCloseError(err, 1006) ||
+				strings.Contains(err.Error(), "use of closed network connection") {
 				break
 			}
 			logging.Vlog(-1, err)

@@ -11,11 +11,8 @@
 #      Change the installation dir.
 #   3. ./install_chromium.sh --debug
 #      Compile and install debug version Chromium.
-#   4. ./install_chromium.sh --upgrade_to=$VERSION
-#      Upgrade Chromium to the specified version.
-#      NOTE: Chromium source code is updated very frequently. There is no guarantee that this works.
-#   5. ./install_chromium.sh --version=$VERSION.
-#      Install the specified version of Chromium. By default, we install version "57.0.2987.99".
+#   4. ./install_chromium.sh --version=$VERSION
+#      Sync Chromium to the specified version.
 #      NOTE: Chromium source code is updated very frequently. There is no guarantee that this works.
 #
 #   To find the available Chromium versions:
@@ -28,7 +25,7 @@ NC='\033[0m'
 BASEDIR=$(readlink -f $(dirname $0))
 
 # Parse command line.
-OPTS=`getopt -n "install_chromium.sh" -o dt:u:v: -l debug,install_dir:,upgrade_to:,version: -- "$@"`
+OPTS=`getopt -n "install_chromium.sh" -o dt:v: -l debug,install_dir:,version: -- "$@"`
 rc=$?
 if [ $rc != 0 ] ; then
     echo "install_chromium.sh [--debug]"
@@ -38,13 +35,11 @@ eval set -- "$OPTS"
 
 debug=
 install_dir=/usr/local/headless_chromium
-upgrade_to=
-version="57.0.2987.99"
+version="57.0.2987.110"
 while true; do
     case "$1" in
         -d | --debug )           debug=1 ; shift ;;
         -t | --install_dir)      install_dir="$2"; shift 2 ;;
-        -u | --upgrade_to)       upgrade_to="$2"; shift 2 ;;
         -v | --version)          version="$2"; shift 2 ;;
         -- )                     shift; break ;;
         * )                      echo -e "${RED}Invalid option: $1${NC}" >&2 ; exit 1 ;;
@@ -64,20 +59,33 @@ install_tools() {
 
 sync_to_version() {
     version="$1"
-        git checkout -b ${version} ${version} &&
-        gclient sync --with_branch_heads
-        rc=$?
-        if [ $rc != 0 ]; then
-            echo -e "${RED}Failed to checkout branch $BRANCH.${NC}"
-            return 1
-        fi
 
-        patch -p1 < ${BASEDIR}/chromium.patch
-        rc=$?
-        if [ $rc != 0 ]; then
-            echo -e "${RED}Failed to patch chromium${NC}"
-            return 1
-        fi
+    git show-branch --list | grep "[$version]"
+    rc=$?
+    if [ $rc != 0 ]; then
+        git checkout -b ${version} ${version}
+    else
+        git checkout ${version}
+    fi
+    rc=$?
+    if [ $rc != 0 ]; then
+        echo -e "${RED}Failed to checkout branch ${version}.${NC}"
+        return 1
+    fi
+
+    gclient sync --with_branch_heads
+    rc=$?
+    if [ $rc != 0 ]; then
+        echo -e "${RED}Failed to sync branch ${version}.${NC}"
+        return 1
+    fi
+
+    patch -p1 < ${BASEDIR}/chromium.patch
+    rc=$?
+    if [ $rc != 0 ]; then
+        echo -e "${RED}Failed to patch chromium${NC}"
+        return 1
+    fi
 }
 
 install_headless_chromium() {
@@ -106,9 +114,6 @@ install_headless_chromium() {
         fi
 
         cd src
-        git fetch --tags
-        # To list all tags:
-        #   git tag -l
         sync_to_version "${version}"
         rc=$?
         if [ $rc != 0 ]; then
@@ -116,15 +121,17 @@ install_headless_chromium() {
         fi
     else
         cd src
-
-        if [ -n "$upgrade_to" ]; then
-            git rebase-update &&
+        cur_version=`git status -uno | grep "On branch" | sed 's/On branch //'`
+        if [ -n "$version" ] && [ "$version" != "$cur_version" ] ; then
+            git checkout . &&
+            git checkout master &&
             gclient sync &&
-            sync_to_version "${upgrade_to}"
+            sync_to_version "${version}"
             rc=$?
             if [ $rc != 0 ]; then
                 return 1
             fi
+            rm -rf out/Default/gen
         fi
     fi
 
