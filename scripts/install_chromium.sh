@@ -80,9 +80,9 @@ sync_to_version() {
         return 1
     fi
 
-    patch -p1 < ${BASEDIR}/chromium.patch
+    patch --forward -p1 < ${BASEDIR}/chromium.patch
     rc=$?
-    if [ $rc != 0 ]; then
+    if [ $rc -gt 1 ]; then
         echo -e "${RED}Failed to patch chromium${NC}"
         return 1
     fi

@@ -35,3 +35,16 @@ index 8e5970b..4005ae5 100644
  }
  
  group("headless_tests") {
+diff --git a/build/install-build-deps.sh b/build/install-build-deps.sh
+index 832d116..1e7fbc2 100755
+--- a/build/install-build-deps.sh
++++ b/build/install-build-deps.sh
+@@ -212,7 +212,7 @@ nacl_list="${nacl_list} libgl1-mesa-glx${mesa_variant}:i386"
+ # Some package names have changed over time
+ if package_exists ttf-mscorefonts-installer; then
+   dev_list="${dev_list} ttf-mscorefonts-installer"
+-else
++elif package_exists msttcorefonts; then
+   dev_list="${dev_list} msttcorefonts"
+ fi
+ if package_exists libnspr4-dbg; then
