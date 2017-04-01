@@ -121,11 +121,13 @@ install_headless_chromium() {
         fi
     else
         cd src
-        cur_version=`git status -uno | grep "On branch" | sed 's/On branch //'`
+        cur_version=`git status -uno | head -n1 | sed 's/HEAD detached at \|On branch //'`
         if [ -n "$version" ] && [ "$version" != "$cur_version" ] ; then
+            echo "Current version is ${cur_version}, sync to ${version} ..."
             git checkout . &&
             git checkout master &&
             gclient sync &&
+            git fetch --tags &&
             sync_to_version "${version}"
             rc=$?
             if [ $rc != 0 ]; then
@@ -204,6 +206,9 @@ icu_use_data_file = false\n"
              ui/base ui/base/touch ui/gfx ui/gfx/geometry url url/third_party/mozilla"
     for folder in ${folders}
     do
+        if [ ! -d "$folder" ]; then
+            continue
+        fi
         sudo mkdir -p ${install_dir}/include/${folder} &&
         sudo cp -f ${folder}/*.h ${install_dir}/include/${folder}/
         rc=$?
@@ -216,6 +221,9 @@ icu_use_data_file = false\n"
              headless/public/devtools/internal"
     for folder in ${folders}
     do
+        if [ ! -d "out/Default/gen/$folder" ]; then
+            continue
+        fi
         sudo mkdir -p ${install_dir}/include/${folder} &&
         sudo cp -f out/Default/gen/${folder}/*.h ${install_dir}/include/${folder}/
         rc=$?
