@@ -142,6 +142,9 @@ func (c *Conn) handleResp(id int, errStr string, result []byte) {
 
 func (c *Conn) handleEvent(name string, params []byte) {
 	logging.Vlogf(3, "handleEvent %s %s", name, string(params))
+	if name == "Inspector.targetCrashed" {
+		logging.Fatal("Chrome has crashed!")
+	}
 	c.evtMu.Lock()
 	defer c.evtMu.Unlock()
 	sinks := c.evtSinkMap[name]

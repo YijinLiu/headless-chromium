@@ -8,7 +8,7 @@ Currently, only Golang library is supported. See go/demos/render for how to use 
 
 ## Manual
 <pre>
-$ docker run -it --cap-add=SYS_ADMIN --net=host --name=hc.${USER} yijinliu/hc:57.0.2987.110
+$ docker run -it --cap-add=SYS_ADMIN --name=hc.${USER} yijinliu/hc:57.0.2987.110
 </pre>
 Inside docker:
 <pre>
@@ -24,7 +24,7 @@ $ make VERSION=57.0.2987.129
 </pre>
 ### HC container
 <pre>
-$ docker run -it --cap-add=SYS_ADMIN --net=host --name=hcdev.${USER} \
+$ docker run -it --cap-add=SYS_ADMIN --name=hcdev.${USER} \
     -v /home/${USER}/projects/headless-chromium:/home/hcdev/external \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v $(which docker):/usr/bin/docker yijinliu/hc:dev
